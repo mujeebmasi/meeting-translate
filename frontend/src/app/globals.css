@@ -1,0 +1,61 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------------------
+   Colours, named once here so pages can write bg-surface or text-brand
+   instead of repeating hex codes. Tailwind turns each --color-* entry into
+   utility classes automatically. Same palette as the other portfolio
+   projects, for a consistent look.
+   --------------------------------------------------------------------------- */
+@theme {
+  --font-sans: var(--font-inter), sans-serif;
+
+  --color-page: #020617; /* page background, deep navy */
+  --color-surface: #0b1220; /* cards sit slightly above the page */
+  --color-raised: #131c31; /* inputs and hover states */
+  --color-line: #1e2a44; /* borders */
+
+  --color-body: #e2e8f0; /* normal text */
+  --color-muted: #8b9ab4; /* secondary text */
+
+  --color-brand: #1780fe;
+  --color-brand-dark: #0b63d6; /* hover */
+
+  --color-brand-soft: #10254a;
+  --color-good: #22c55e;
+  --color-good-soft: #0c2a1b;
+  --color-warn: #f59e0b;
+  --color-warn-soft: #2e2109;
+  --color-bad: #f87171;
+  --color-bad-soft: #331519;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-body);
+  background-image: radial-gradient(60rem 30rem at 50% -10rem, rgba(23, 128, 254, 0.13), transparent);
+  background-repeat: no-repeat;
+}
+
+input,
+textarea,
+select {
+  background: var(--color-raised);
+  border: 1px solid var(--color-line);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  color: var(--color-body);
+  width: 100%;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #64748b;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 1px;
+  border-color: transparent;
+}

@@ -1,0 +1,55 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A video call. `code` is the short id in the invite link
+// (meet-translate.example/m/<code>) -- separate from `id` so the shareable
+// link doesn't have to be a long database key.
+model Meeting {
+  id           Int           @id @default(autoincrement())
+  code         String        @unique
+  title        String
+  createdAt    DateTime      @default(now())
+  participants Participant[]
+  utterances   Utterance[]
+}
+
+// One person's time in one meeting. A person who leaves and rejoins gets a
+// second row -- that's deliberate, it's what makes a transcript/attendance
+// history possible later.
+model Participant {
+  id         Int         @id @default(autoincrement())
+  meeting    Meeting     @relation(fields: [meetingId], references: [id])
+  meetingId  Int
+  name       String
+  lang       String
+  joinedAt   DateTime    @default(now())
+  leftAt     DateTime?
+  utterances Utterance[]
+}
+
+// One spoken phrase, already turned into text, plus its translation into
+// every other language that was in the room at the time. Translations are
+// stored as one JSON object ({ hi: "...", es: "..." }) rather than a separate
+// table per language -- the set of languages in a meeting is small and
+// read/written together, so a second table would only add joins for no
+// real benefit.
+model Utterance {
+  id            Int         @id @default(autoincrement())
+  meeting       Meeting     @relation(fields: [meetingId], references: [id])
+  meetingId     Int
+  speaker       Participant @relation(fields: [speakerId], references: [id])
+  speakerId     Int
+  lang          String
+  originalText  String
+  translations  Json
+  createdAt     DateTime    @default(now())
+}
