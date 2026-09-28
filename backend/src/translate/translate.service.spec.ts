@@ -92,11 +92,11 @@ describe('TranslateService', () => {
     await withFakeClaude(
       (req, res) => {
         res.setHeader('Content-Type', 'application/json');
-        res.end(claudeReply('  Bonjour tout le monde  \n'));
+        res.end(claudeReply('  Andaru bagunnara  \n'));
       },
       async () => {
-        const result = await translate.translate('Hello everyone', 'en', 'fr');
-        expect(result).toBe('Bonjour tout le monde');
+        const result = await translate.translate('Hello everyone', 'en', 'te');
+        expect(result).toBe('Andaru bagunnara');
       },
     );
   });

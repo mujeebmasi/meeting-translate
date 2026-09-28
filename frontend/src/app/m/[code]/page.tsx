@@ -48,7 +48,10 @@ export default function MeetingRoom() {
   const [mockMode, setMockMode] = useState(false);
   const [muted, setMuted] = useState(false);
   const [cameraOff, setCameraOff] = useState(false);
-  const [readAloud, setReadAloud] = useState(false);
+  // On by default: hearing a translated voice instead of the original is
+  // the point of a translated call, not an extra someone has to turn on.
+  // The checkbox stays so someone can switch back to the original voice.
+  const [readAloud, setReadAloud] = useState(true);
 
   const socketRef = useRef<Socket | null>(null);
   const speechQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -56,7 +59,7 @@ export default function MeetingRoom() {
   // connects) always see the latest value, instead of the value from
   // whichever render happened to be active when the listener was attached.
   const langRef = useRef('en');
-  const readAloudRef = useRef(false);
+  const readAloudRef = useRef(true);
   useEffect(() => {
     readAloudRef.current = readAloud;
   }, [readAloud]);
@@ -284,7 +287,9 @@ export default function MeetingRoom() {
         if (!res.ok || res.status === 204) return; // 204 = mock mode, no real audio to play
         const url = URL.createObjectURL(await res.blob());
         const audio = new Audio(url);
-        setRemoteVolume(0.15); // quiet the original voices while the translation plays
+        // Mute the original voice entirely -- the point is to hear the
+        // translation instead of the speaker, not layered under them.
+        setRemoteVolume(0);
         await new Promise<void>((done) => {
           audio.onended = () => done();
           audio.onerror = () => done();
@@ -451,7 +456,7 @@ export default function MeetingRoom() {
         </Button>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} className="w-auto" />
-          Read translations aloud
+          Play translated voice (mutes the original)
         </label>
         <span className="flex-1" />
         <Button variant="danger" onClick={leave}>
