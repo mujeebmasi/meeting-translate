@@ -27,8 +27,12 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
 - **`MeetingsController`** (`src/meetings/meetings.controller.ts`) has the
   actual translation pipeline. The browser uploads one WAV file per spoken
   phrase (see the frontend's `segmenter.ts` for why), which gets:
-  1. turned into text by **Fish Audio speech-to-text** (`src/fish/`)
-  2. translated into every other language in the room by **DeepSeek**
+  1. turned into text -- by the local **IndicConformer** service
+     (`../asr`, called from `src/asr/`) for Hindi/Telugu/Tamil/Kannada, or
+     **Fish Audio** (`src/fish/`) for English. Fish was tried for the Indian
+     languages first and returned gibberish for Telugu, Tamil and Kannada.
+  2. translated into English (only ever that direction -- see
+     `needsTranslation()` in `src/languages.ts`) by **DeepSeek**
      (`src/translate/`), via DeepSeek's Anthropic-compatible endpoint --
      hence still using `@anthropic-ai/sdk` as the client, just given a
      `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL` explicitly rather than the
@@ -36,13 +40,10 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
      changing those two lines in `translate.service.ts`'s `client()` back
      to `new Anthropic()` (reads `ANTHROPIC_API_KEY` itself) and `MODEL` to
      a `claude-*` name.
-  3. saved, then broadcast to everyone as a caption via the gateway.
-  There's also an optional endpoint that reads a caption aloud using **Fish
-  Audio text-to-speech**.
-
-Fish Audio doesn't do translation itself, and its speech-to-text takes a
-finished audio file rather than a live stream -- that's the two reasons this
-isn't a single API call.
+  3. broadcast to everyone as a caption right away, then spoken in English
+     by **Fish Audio text-to-speech** and pushed (as a separate `voice`
+     socket event) only to the English listeners. Saved to Postgres last,
+     without holding anything up.
 
 ## Setup
 

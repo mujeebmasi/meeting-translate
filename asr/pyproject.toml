@@ -19,8 +19,10 @@ dependencies = [
 [tool.uv]
 package = false
 
-# CPU-only PyTorch: ~200 MB instead of ~2.5 GB. The model itself runs in
-# ONNX Runtime; torch is only used for turning audio into features.
+# CPU-only PyTorch (~200 MB instead of ~2.5 GB). The GPU was tested and was
+# *slower* for this model (~450ms vs ~190ms): ONNX Runtime's CUDA
+# convolution kernels are the bottleneck. torch only turns audio into
+# features here; the model itself runs in ONNX Runtime.
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"

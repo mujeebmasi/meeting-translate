@@ -11,7 +11,13 @@
 // speakers through as "speech", and each of those became a garbled caption.
 
 const END_SILENCE_MS = 500; // this much quiet ends a phrase
-const MAX_PHRASE_MS = 4000; // cut long speech anyway so captions keep coming
+// Long speech without a proper pause is still cut, so captions keep coming.
+// After MAX_PHRASE_MS the phrase ends at the next brief gap between words
+// (any non-speech block), not instantly -- an instant cut split a word in
+// half, and the leftover half-word became a nonsense caption. HARD_MAX is
+// the backstop for someone who never leaves a gap at all.
+const MAX_PHRASE_MS = 4000;
+const HARD_MAX_PHRASE_MS = 6000;
 const MIN_SPEECH_MS = 400; // ignore coughs and "hmm"s shorter than this
 const PRE_ROLL_MS = 300; // keep a little audio from before speech began
 
@@ -97,7 +103,9 @@ export class Segmenter {
       this.silenceMs += ms;
     }
 
-    if (this.silenceMs >= END_SILENCE_MS || this.totalMs >= MAX_PHRASE_MS) this.finish();
+    const pausedLongEnough = this.silenceMs >= END_SILENCE_MS;
+    const longAndBetweenWords = this.totalMs >= MAX_PHRASE_MS && !isVoice;
+    if (pausedLongEnough || longAndBetweenWords || this.totalMs >= HARD_MAX_PHRASE_MS) this.finish();
   }
 
   private finish(): void {
