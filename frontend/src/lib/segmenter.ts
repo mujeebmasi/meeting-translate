@@ -1,20 +1,19 @@
 // Cuts a continuous microphone stream into spoken phrases.
 //
-// Why: Fish Audio's speech-to-text needs a finished audio clip, so we wait for
-// the speaker to pause and send what they just said. The pause length is the
+// Why: speech-to-text works on a finished audio clip, so we wait for the
+// speaker to pause and send what they just said. The pause length is the
 // main lever on delay: shorter = quicker captions but choppier sentences.
+//
+// Whether each block *is* speech is decided by the caller (the Silero voice
+// detector, see the meeting page) -- this file only decides where a phrase
+// starts and ends. It used to decide "speech" by loudness alone, which let
+// keyboard clicks, background noise and the translated voice playing on the
+// speakers through as "speech", and each of those became a garbled caption.
 
-const VOICE_LEVEL = 0.02; // loudness (0 to 1) above which we call it speech
 const END_SILENCE_MS = 500; // this much quiet ends a phrase
 const MAX_PHRASE_MS = 4000; // cut long speech anyway so captions keep coming
-const MIN_SPEECH_MS = 300; // ignore clicks and coughs shorter than this
+const MIN_SPEECH_MS = 400; // ignore coughs and "hmm"s shorter than this
 const PRE_ROLL_MS = 300; // keep a little audio from before speech began
-
-function loudness(samples: Float32Array): number {
-  let sum = 0;
-  for (const s of samples) sum += s * s;
-  return Math.sqrt(sum / samples.length); // root-mean-square
-}
 
 // 16-bit mono WAV: a 44-byte header followed by the raw samples.
 function encodeWav(samples: Float32Array, sampleRate: number): Blob {
@@ -70,9 +69,8 @@ export class Segmenter {
     this.silenceMs = 0;
   }
 
-  push(block: Float32Array): void {
+  push(block: Float32Array, isVoice: boolean): void {
     const ms = (block.length / this.sampleRate) * 1000;
-    const isVoice = loudness(block) > VOICE_LEVEL;
 
     if (!this.speaking) {
       // Not in a phrase yet: just remember the last few hundred ms of audio,

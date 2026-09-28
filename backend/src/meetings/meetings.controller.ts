@@ -15,6 +15,7 @@ import { MeetingsService } from './meetings.service';
 import { PresenceService } from './presence.service';
 import { MeetingsGateway } from './meetings.gateway';
 import { FishService } from '../fish/fish.service';
+import { AsrService } from '../asr/asr.service';
 import { TranslateService } from '../translate/translate.service';
 import { MockService } from '../mock.service';
 import { CreateMeetingDto } from './meetings.dto';
@@ -28,6 +29,7 @@ export class MeetingsController {
     private presence: PresenceService,
     private gateway: MeetingsGateway,
     private fish: FishService,
+    private asr: AsrService,
     private translate: TranslateService,
     private mock: MockService,
   ) {}
@@ -50,7 +52,7 @@ export class MeetingsController {
 
   // The browser sends one spoken phrase (a WAV file) whenever the speaker
   // pauses. We turn it into text, translate it into English if the speaker
-  // used Hindi/Telugu and someone is listening in English, push that to
+  // used an Indian language and someone is listening in English, push that to
   // everyone as a caption, then send the spoken English version to the
   // English listeners. Note: express.raw() puts the WAV bytes straight into
   // req.body as a Buffer for this route -- see MeetingsModule.configure().
@@ -75,9 +77,13 @@ export class MeetingsController {
     let original: string;
     const translations: Record<string, string> = {};
     try {
-      original = MOCK
-        ? await this.mock.transcribe()
-        : await this.fish.transcribe(body, speaker.lang);
+      // Each language goes to the recognizer that's actually good at it:
+      // Fish for English, the local IndicConformer service for Indian
+      // languages (Fish returned gibberish for Telugu/Tamil/Kannada).
+      if (MOCK) original = await this.mock.transcribe();
+      else if (speaker.lang === TARGET_LANG)
+        original = await this.fish.transcribe(body, speaker.lang);
+      else original = await this.asr.transcribe(body, speaker.lang);
       if (!original) return { empty: true }; // background noise, no words
 
       if (needsTranslation(speaker.lang, this.presence.languagesInUse(code))) {

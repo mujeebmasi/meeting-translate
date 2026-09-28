@@ -13,6 +13,11 @@ import { VideoTile } from '@/components/video-tile';
 // Some strict networks also need a TURN relay, which this prototype does not have.
 const RTC_CONFIG: RTCConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
+// Where the voice detector loads its model and runtime from. Pinned to the
+// installed package versions so they always match the code that uses them.
+const VAD_ASSET_URL = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/';
+const ONNX_RUNTIME_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+
 interface RemotePeer extends PublicPeer {
   // null until either we call them or their offer arrives -- see
   // upsertPeerInfo/setPeerConnection below for why those are two separate steps.
@@ -55,6 +60,7 @@ export default function MeetingRoom() {
 
   const socketRef = useRef<Socket | null>(null);
   const speechQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const playingVoiceRef = useRef(false); // true while a translated voice plays
   // Saved outside React state so callbacks registered once (when the socket
   // connects) always see the latest value, instead of the value from
   // whichever render happened to be active when the listener was attached.
@@ -243,21 +249,34 @@ export default function MeetingRoom() {
 
   // ---------- live translation ----------
 
+  // Silero VAD (via @ricky0123/vad-web) runs a small neural network on every
+  // 32ms of mic audio in the browser and says how likely it is to be speech.
+  // It replaces a plain loudness check, which let clicks, background noise and
+  // the translated voice from the speakers through as "speech".
   async function startTranslationCapture(stream: MediaStream) {
-    // 16 kHz is plenty for speech and keeps the uploads small (fast).
-    const audioContext = new AudioContext({ sampleRate: 16000 });
-    await audioContext.audioWorklet.addModule('/mic-worklet.js');
+    // Imported here, not at the top of the file: it needs browser-only APIs,
+    // and Next.js also renders this page once on the server.
+    const { MicVAD } = await import('@ricky0123/vad-web');
+    const segmenter = new Segmenter(16000, (wavBlob, endedAt) => uploadPhrase(wavBlob, endedAt));
 
-    const source = audioContext.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
-    const tap = new AudioWorkletNode(audioContext, 'mic-tap');
-    const segmenter = new Segmenter(audioContext.sampleRate, (wavBlob, endedAt) => uploadPhrase(wavBlob, endedAt));
-    tap.port.onmessage = (event: MessageEvent<Float32Array>) => segmenter.push(event.data);
-
-    // Some browsers only run a node that leads to the speakers, so we route
-    // it through a gain of 0: it runs, but nothing is played back.
-    const silent = audioContext.createGain();
-    silent.gain.value = 0;
-    source.connect(tap).connect(silent).connect(audioContext.destination);
+    await MicVAD.new({
+      model: 'v5',
+      baseAssetPath: VAD_ASSET_URL,
+      onnxWASMBasePath: ONNX_RUNTIME_URL,
+      // Listen to the call's own mic, and never stop it -- the same audio
+      // track is also being sent to the other people over WebRTC.
+      getStream: async () => new MediaStream(stream.getAudioTracks()),
+      pauseStream: async () => {},
+      resumeStream: async (s) => s,
+      startOnLoad: true,
+      // Each frame arrives already resampled to 16 kHz. While a translated
+      // voice is playing, treat the mic as silent so the speakers' output
+      // isn't picked up and sent back as if I'd said it.
+      onFrameProcessed: (probabilities, frame) => {
+        const isSpeech = !playingVoiceRef.current && probabilities.isSpeech > 0.5;
+        segmenter.push(frame, isSpeech);
+      },
+    });
   }
 
   async function uploadPhrase(wavBlob: Blob, endedAt: number) {
@@ -293,9 +312,14 @@ export default function MeetingRoom() {
         () =>
           new Promise<void>((done) => {
             const audio = new Audio(`data:audio/mpeg;base64,${base64Mp3}`);
-            audio.onended = () => done();
-            audio.onerror = () => done();
-            audio.play().catch(() => done());
+            const finish = () => {
+              playingVoiceRef.current = false;
+              done();
+            };
+            playingVoiceRef.current = true; // mic is ignored until it ends
+            audio.onended = finish;
+            audio.onerror = finish;
+            audio.play().catch(finish);
           }),
       )
       .catch(() => {});
