@@ -74,20 +74,38 @@ export class MeetingsController {
 
     let original: string;
     const translations: Record<string, string> = {};
+    // Translated speech, one per language, base64 mp3 -- generated here,
+    // in parallel with translating, and sent *with* the caption. Earlier
+    // this only happened after a listener's browser had already received
+    // the caption and made its own separate request for the audio, which
+    // stacked a full extra network round trip (plus another wait for Fish
+    // to synthesize it) on top of the delay already spent transcribing and
+    // translating. Doing it here removes that second wait entirely.
+    const voices: Record<string, string> = {};
     try {
       original = MOCK
         ? await this.mock.transcribe()
         : await this.fish.transcribe(body, speaker.lang);
       if (!original) return { empty: true }; // background noise, no words
 
-      // One translation per language other than the speaker's own, all at once.
+      // One translation (and its spoken version) per language other than
+      // the speaker's own, all at once.
       const wanted = this.presence.languagesInUse(code);
       wanted.delete(speaker.lang);
       await Promise.all(
         [...wanted].map(async (lang) => {
-          translations[lang] = MOCK
+          const text = MOCK
             ? await this.mock.translate(original, speaker.lang, lang)
             : await this.translate.translate(original, speaker.lang, lang);
+          translations[lang] = text;
+
+          if (MOCK) {
+            await this.mock.speak();
+          } else {
+            const audioRes = await this.fish.speak(text);
+            const audioBytes = Buffer.from(await audioRes.arrayBuffer());
+            voices[lang] = audioBytes.toString('base64');
+          }
         }),
       );
     } catch (err) {
@@ -113,6 +131,7 @@ export class MeetingsController {
       lang: speaker.lang,
       original,
       translations,
+      voices,
       serverMs,
       mock: MOCK,
     });

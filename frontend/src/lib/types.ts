@@ -23,6 +23,7 @@ export interface Caption {
   lang: string;
   original: string;
   translations: Record<string, string>; // lang -> translated text
+  voices: Record<string, string>; // lang -> spoken translation, base64 mp3
   serverMs: number;
   mock: boolean;
 }

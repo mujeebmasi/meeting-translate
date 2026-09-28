@@ -147,8 +147,8 @@ export default function MeetingRoom() {
 
     socket.on('caption', (caption: Caption) => {
       setCaptions((prev) => [...prev, caption]);
-      const translated = caption.translations[langRef.current];
-      if (readAloudRef.current && translated && caption.from !== socketRef.current?.id) speakAloud(translated);
+      const audio = caption.voices[langRef.current];
+      if (readAloudRef.current && audio && caption.from !== socketRef.current?.id) playVoice(audio);
     });
 
     socket.on('full', () => setLobbyError('This meeting is full.'));
@@ -278,15 +278,16 @@ export default function MeetingRoom() {
     myParticipantIdRef.current = myParticipantId;
   }, [myParticipantId]);
 
-  // ---------- reading translations aloud (Fish Audio) ----------
+  // ---------- playing the translated voice (Fish Audio) ----------
 
-  function speakAloud(text: string) {
+  // The caption already carries the translated audio as base64 (generated
+  // server-side alongside the translation, not fetched separately here) --
+  // that's what removes the second network round trip that used to add
+  // real, felt lag on top of the transcribe+translate time.
+  function playVoice(base64Mp3: string) {
     speechQueueRef.current = speechQueueRef.current
       .then(async () => {
-        const res = await api.speakAloud(code, myParticipantIdRef.current, text);
-        if (!res.ok || res.status === 204) return; // 204 = mock mode, no real audio to play
-        const url = URL.createObjectURL(await res.blob());
-        const audio = new Audio(url);
+        const audio = new Audio(`data:audio/mpeg;base64,${base64Mp3}`);
         // Mute the original voice entirely -- the point is to hear the
         // translation instead of the speaker, not layered under them.
         setRemoteVolume(0);
@@ -296,7 +297,6 @@ export default function MeetingRoom() {
           audio.play().catch(() => done());
         });
         setRemoteVolume(1);
-        URL.revokeObjectURL(url);
       })
       .catch(() => setRemoteVolume(1));
   }

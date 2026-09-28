@@ -55,6 +55,10 @@ export class FishService {
       format: 'mp3',
       latency: 'low',
     };
+    // Without this, Fish picks a different default voice on every call --
+    // fine for a one-off, but jarring when every translated sentence in a
+    // meeting sounds like a different person. Set in .env, not hardcoded
+    // here, so a deployment can use its own preferred voice.
     if (process.env.FISH_VOICE_ID)
       body.reference_id = process.env.FISH_VOICE_ID;
 
