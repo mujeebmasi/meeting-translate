@@ -39,11 +39,4 @@ export class MockService {
     await this.delay(150 + Math.random() * 150);
     return `[${toLang} demo] ${text}`;
   }
-
-  // No fake audio bytes are generated; the caller skips actually playing
-  // anything back in mock mode. This just mimics the delay of a real call.
-  async speak(): Promise<null> {
-    await this.delay(150);
-    return null;
-  }
 }

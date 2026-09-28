@@ -12,3 +12,17 @@ export const LANGUAGES: Record<string, string> = {
   hi: 'Hindi',
   te: 'Telugu',
 };
+
+// Translation only ever goes one way: into English.
+export const TARGET_LANG = 'en';
+
+// Translate a phrase only if it wasn't already English and someone in the
+// room is actually listening in English. An English speaker is never
+// translated into Hindi/Telugu -- that direction isn't part of this app, and
+// skipping it saves a DeepSeek + Fish call per sentence.
+export function needsTranslation(
+  speakerLang: string,
+  languagesInRoom: Set<string>,
+): boolean {
+  return speakerLang !== TARGET_LANG && languagesInRoom.has(TARGET_LANG);
+}

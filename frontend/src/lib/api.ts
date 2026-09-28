@@ -62,13 +62,4 @@ export const api = {
     if (!res.ok) throw new ApiError(data?.message ?? 'Translation error', res.status);
     return data;
   },
-
-  // Returns the raw fetch Response: the caller needs to check res.status
-  // itself, since a 204 (mock mode) is a valid "no audio" reply, not an error.
-  speakAloud: (code: string, participantId: number, text: string): Promise<Response> =>
-    fetch(`${API_URL}/meetings/${code}/tts?participantId=${participantId}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    }),
 };

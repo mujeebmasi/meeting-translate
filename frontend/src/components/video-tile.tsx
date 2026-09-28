@@ -12,6 +12,13 @@ export function VideoTile({ stream, muted, label }: { stream: MediaStream | null
     if (videoRef.current) videoRef.current.srcObject = stream;
   }, [stream]);
 
+  // Same reason for muted: React only reliably applies the `muted` prop on
+  // first render, and here it changes mid-call (when someone switches
+  // language or turns translated voice on/off), so set it directly too.
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.muted = muted;
+  }, [muted]);
+
   return (
     <div className="relative min-h-40 overflow-hidden rounded-lg bg-black">
       <video ref={videoRef} autoPlay playsInline muted={muted} className="h-full w-full object-cover" />

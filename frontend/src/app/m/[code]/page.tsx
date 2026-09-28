@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { io, type Socket } from 'socket.io-client';
 import { api, errorMessage, WS_URL } from '@/lib/api';
 import { Segmenter } from '@/lib/segmenter';
-import type { Caption, Languages, PublicPeer } from '@/lib/types';
+import { TARGET_LANG, type Caption, type Languages, type PublicPeer, type Voice } from '@/lib/types';
 import { Button, Card, ErrorText, Label } from '@/components/ui';
 import { VideoTile } from '@/components/video-tile';
 
@@ -147,8 +147,11 @@ export default function MeetingRoom() {
 
     socket.on('caption', (caption: Caption) => {
       setCaptions((prev) => [...prev, caption]);
-      const audio = caption.voices[langRef.current];
-      if (readAloudRef.current && audio && caption.from !== socketRef.current?.id) playVoice(audio);
+    });
+
+    // Arrives a moment after the caption, only if I'm listening in English.
+    socket.on('voice', (voice: Voice) => {
+      if (readAloudRef.current && voice.from !== socketRef.current?.id) playVoice(voice.audio);
     });
 
     socket.on('full', () => setLobbyError('This meeting is full.'));
@@ -280,29 +283,29 @@ export default function MeetingRoom() {
 
   // ---------- playing the translated voice (Fish Audio) ----------
 
-  // The caption already carries the translated audio as base64 (generated
-  // server-side alongside the translation, not fetched separately here) --
-  // that's what removes the second network round trip that used to add
-  // real, felt lag on top of the transcribe+translate time.
+  // The server pushes the translated audio as base64 straight after the
+  // caption -- no request from here, so no extra round trip. Clips are
+  // queued so two quick sentences play one after another, not on top of
+  // each other.
   function playVoice(base64Mp3: string) {
     speechQueueRef.current = speechQueueRef.current
-      .then(async () => {
-        const audio = new Audio(`data:audio/mpeg;base64,${base64Mp3}`);
-        // Mute the original voice entirely -- the point is to hear the
-        // translation instead of the speaker, not layered under them.
-        setRemoteVolume(0);
-        await new Promise<void>((done) => {
-          audio.onended = () => done();
-          audio.onerror = () => done();
-          audio.play().catch(() => done());
-        });
-        setRemoteVolume(1);
-      })
-      .catch(() => setRemoteVolume(1));
+      .then(
+        () =>
+          new Promise<void>((done) => {
+            const audio = new Audio(`data:audio/mpeg;base64,${base64Mp3}`);
+            audio.onended = () => done();
+            audio.onerror = () => done();
+            audio.play().catch(() => done());
+          }),
+      )
+      .catch(() => {});
   }
 
-  function setRemoteVolume(volume: number) {
-    document.querySelectorAll<HTMLVideoElement>('[data-remote-video] video').forEach((v) => (v.volume = volume));
+  // A speaker whose words get translated into my language is muted outright
+  // (not just while their translation plays), so I only ever hear the
+  // translated voice -- not a few seconds of Hindi/Telugu first.
+  function isTranslatedForMe(peer: PublicPeer) {
+    return readAloud && lang === TARGET_LANG && peer.lang !== TARGET_LANG;
   }
 
   // ---------- controls ----------
@@ -420,9 +423,12 @@ export default function MeetingRoom() {
       <section className="grid flex-1 grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2 overflow-auto p-2">
         <VideoTile stream={localStream} muted label={`${name} (you) · ${languages[lang] ?? lang}`} />
         {peers.map((p) => (
-          <div key={p.socketId} data-remote-video>
-            <VideoTile stream={p.stream} muted={false} label={`${p.name} · ${languages[p.lang] ?? p.lang}`} />
-          </div>
+          <VideoTile
+            key={p.socketId}
+            stream={p.stream}
+            muted={isTranslatedForMe(p)}
+            label={`${p.name} · ${languages[p.lang] ?? p.lang}`}
+          />
         ))}
       </section>
 

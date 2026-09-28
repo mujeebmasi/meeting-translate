@@ -6,9 +6,3 @@ export class CreateMeetingDto {
   @MaxLength(80)
   title?: string;
 }
-
-export class SpeakTtsDto {
-  @IsString()
-  @MaxLength(500)
-  text: string;
-}

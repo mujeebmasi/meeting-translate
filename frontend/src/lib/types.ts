@@ -23,7 +23,17 @@ export interface Caption {
   lang: string;
   original: string;
   translations: Record<string, string>; // lang -> translated text
-  voices: Record<string, string>; // lang -> spoken translation, base64 mp3
   serverMs: number;
   mock: boolean;
 }
+
+// The spoken version of a translated caption, sent right after the caption
+// itself and only to people listening in the translated language.
+export interface Voice {
+  from: string; // speaker's socketId
+  audio: string; // base64 mp3
+}
+
+// Translation only ever goes into English (Hindi/Telugu -> English), same
+// rule as the backend's needsTranslation().
+export const TARGET_LANG = 'en';

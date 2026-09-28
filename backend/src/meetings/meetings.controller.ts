@@ -9,18 +9,17 @@ import {
   Post,
   Query,
   Req,
-  Res,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
-import { Readable } from 'node:stream';
+import type { Request } from 'express';
 import { MeetingsService } from './meetings.service';
 import { PresenceService } from './presence.service';
 import { MeetingsGateway } from './meetings.gateway';
 import { FishService } from '../fish/fish.service';
 import { TranslateService } from '../translate/translate.service';
 import { MockService } from '../mock.service';
-import { CreateMeetingDto, SpeakTtsDto } from './meetings.dto';
+import { CreateMeetingDto } from './meetings.dto';
 import { MOCK } from '../mock-flag';
+import { TARGET_LANG, needsTranslation } from '../languages';
 
 @Controller('meetings')
 export class MeetingsController {
@@ -50,10 +49,11 @@ export class MeetingsController {
   }
 
   // The browser sends one spoken phrase (a WAV file) whenever the speaker
-  // pauses. We turn it into text, translate it into every language someone
-  // in the room reads, save it, and push the result to everyone as a caption.
-  // Note: express.raw() puts the WAV bytes straight into req.body as a
-  // Buffer for this route -- see MeetingsModule.configure().
+  // pauses. We turn it into text, translate it into English if the speaker
+  // used Hindi/Telugu and someone is listening in English, push that to
+  // everyone as a caption, then send the spoken English version to the
+  // English listeners. Note: express.raw() puts the WAV bytes straight into
+  // req.body as a Buffer for this route -- see MeetingsModule.configure().
   @Post(':code/utterance')
   async utterance(
     @Param('code') code: string,
@@ -74,56 +74,27 @@ export class MeetingsController {
 
     let original: string;
     const translations: Record<string, string> = {};
-    // Translated speech, one per language, base64 mp3 -- generated here,
-    // in parallel with translating, and sent *with* the caption. Earlier
-    // this only happened after a listener's browser had already received
-    // the caption and made its own separate request for the audio, which
-    // stacked a full extra network round trip (plus another wait for Fish
-    // to synthesize it) on top of the delay already spent transcribing and
-    // translating. Doing it here removes that second wait entirely.
-    const voices: Record<string, string> = {};
     try {
       original = MOCK
         ? await this.mock.transcribe()
         : await this.fish.transcribe(body, speaker.lang);
       if (!original) return { empty: true }; // background noise, no words
 
-      // One translation (and its spoken version) per language other than
-      // the speaker's own, all at once.
-      const wanted = this.presence.languagesInUse(code);
-      wanted.delete(speaker.lang);
-      await Promise.all(
-        [...wanted].map(async (lang) => {
-          const text = MOCK
-            ? await this.mock.translate(original, speaker.lang, lang)
-            : await this.translate.translate(original, speaker.lang, lang);
-          translations[lang] = text;
-
-          if (MOCK) {
-            await this.mock.speak();
-          } else {
-            const audioRes = await this.fish.speak(text);
-            const audioBytes = Buffer.from(await audioRes.arrayBuffer());
-            voices[lang] = audioBytes.toString('base64');
-          }
-        }),
-      );
+      if (needsTranslation(speaker.lang, this.presence.languagesInUse(code))) {
+        translations[TARGET_LANG] = MOCK
+          ? await this.mock.translate(original, speaker.lang, TARGET_LANG)
+          : await this.translate.translate(original, speaker.lang, TARGET_LANG);
+      }
     } catch (err) {
-      // Fish/Claude errors (bad key, no credit, rate limit) would otherwise
+      // Fish/DeepSeek errors (bad key, no credit, rate limit) would otherwise
       // surface as an opaque 500 -- this puts the real reason in the response.
       throw new BadGatewayException(
         err instanceof Error ? err.message : String(err),
       );
     }
 
-    await this.meetings.saveUtterance(
-      meeting.id,
-      participantId,
-      speaker.lang,
-      original,
-      translations,
-    );
-
+    // 1. The text goes out the moment it exists. It used to wait for the
+    //    spoken version to be synthesized too, which made captions slower.
     const serverMs = Date.now() - startedAt;
     this.gateway.broadcastCaption(code, {
       from: speaker.socketId,
@@ -131,45 +102,46 @@ export class MeetingsController {
       lang: speaker.lang,
       original,
       translations,
-      voices,
       serverMs,
       mock: MOCK,
     });
     console.log(`[${code}] ${speaker.name}: "${original}" (${serverMs}ms)`);
+
+    // 2. Then the spoken translation, pushed straight to the listeners who
+    //    need it -- their browser plays it without having to ask for it
+    //    (which used to cost a whole extra round trip after the caption).
+    const translated = translations[TARGET_LANG];
+    if (translated && !MOCK) {
+      this.fish
+        .speak(translated)
+        .then((res) => res.arrayBuffer())
+        .then((audio) =>
+          this.gateway.sendVoice(code, TARGET_LANG, {
+            from: speaker.socketId,
+            audio: Buffer.from(audio).toString('base64'),
+          }),
+        )
+        .catch((err: unknown) =>
+          console.error(
+            'Voice failed:',
+            err instanceof Error ? err.message : err,
+          ),
+        );
+    }
+
+    // 3. Saving the transcript doesn't need to hold anything up either.
+    this.meetings
+      .saveUtterance(
+        meeting.id,
+        participantId,
+        speaker.lang,
+        original,
+        translations,
+      )
+      .catch((err: unknown) =>
+        console.error('Save failed:', err instanceof Error ? err.message : err),
+      );
+
     return { serverMs };
-  }
-
-  // Optional: read a translated caption aloud in a Fish Audio voice.
-  @Post(':code/tts')
-  async tts(
-    @Param('code') code: string,
-    @Query('participantId') participantIdRaw: string,
-    @Body() dto: SpeakTtsDto,
-    @Res() res: Response,
-  ) {
-    const participantId = Number(participantIdRaw);
-    // Only people in the meeting may use this, because it spends Fish credit.
-    const inMeeting = this.presence
-      .list(code)
-      .some((p) => p.participantId === participantId);
-    if (!inMeeting) return res.sendStatus(404);
-
-    if (MOCK) {
-      await this.mock.speak();
-      return res.sendStatus(204); // no real audio to send back
-    }
-
-    try {
-      const fishRes = await this.fish.speak(dto.text);
-      res.set('Content-Type', 'audio/mpeg');
-      Readable.fromWeb(
-        fishRes.body as import('node:stream/web').ReadableStream,
-      ).pipe(res);
-    } catch (err) {
-      // @Res() means Nest's own exception filter won't format this for us.
-      res
-        .status(502)
-        .json({ message: err instanceof Error ? err.message : String(err) });
-    }
   }
 }
