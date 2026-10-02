@@ -77,14 +77,17 @@ describe('MeetingsService', () => {
   it('saveUtterance() records the phrase and its translations', () => {
     const prisma = fakePrisma();
     const service = new MeetingsService(prisma);
-    service.saveUtterance(1, 2, 'en', 'hello', { hi: 'namaste' });
+    service.saveUtterance(1, 2, 'hi', 'आप कैसे हैं', 'aap kaise hain', {
+      en: 'How are you?',
+    });
     expect(prisma.utterance.create).toHaveBeenCalledWith({
       data: {
         meetingId: 1,
         speakerId: 2,
-        lang: 'en',
-        originalText: 'hello',
-        translations: { hi: 'namaste' },
+        lang: 'hi',
+        originalText: 'आप कैसे हैं',
+        romanizedText: 'aap kaise hain',
+        translations: { en: 'How are you?' },
       },
     });
   });

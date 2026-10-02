@@ -50,6 +50,9 @@ model Utterance {
   speakerId     Int
   lang          String
   originalText  String
+  // originalText in English letters ("aaj ki meeting mein kya hua"), shown
+  // under the caption. Empty for English speakers, who need no conversion.
+  romanizedText String      @default("")
   translations  Json
   createdAt     DateTime    @default(now())
 }

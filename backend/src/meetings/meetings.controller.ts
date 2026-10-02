@@ -76,6 +76,7 @@ export class MeetingsController {
 
     let original: string;
     const translations: Record<string, string> = {};
+    let romanized = ''; // the original in English letters, e.g. "aaj ki meeting"
     try {
       // Each language goes to the recognizer that's actually good at it:
       // Fish for English, the local IndicConformer service for Indian
@@ -87,9 +88,11 @@ export class MeetingsController {
       if (!original) return { empty: true }; // background noise, no words
 
       if (needsTranslation(speaker.lang, this.presence.languagesInUse(code))) {
-        translations[TARGET_LANG] = MOCK
-          ? await this.mock.translate(original, speaker.lang, TARGET_LANG)
-          : await this.translate.translate(original, speaker.lang, TARGET_LANG);
+        const result = MOCK
+          ? await this.mock.translate(original)
+          : await this.translate.translate(original, speaker.lang);
+        translations[TARGET_LANG] = result.english;
+        romanized = result.romanized;
       }
     } catch (err) {
       // Fish/DeepSeek errors (bad key, no credit, rate limit) would otherwise
@@ -107,6 +110,7 @@ export class MeetingsController {
       name: speaker.name,
       lang: speaker.lang,
       original,
+      romanized,
       translations,
       serverMs,
       mock: MOCK,
@@ -142,6 +146,7 @@ export class MeetingsController {
         participantId,
         speaker.lang,
         original,
+        romanized,
         translations,
       )
       .catch((err: unknown) =>

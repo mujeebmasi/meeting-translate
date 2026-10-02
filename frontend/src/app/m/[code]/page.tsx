@@ -461,13 +461,16 @@ export default function MeetingRoom() {
           {captions.map((c, i) => {
             const mine = c.from === mySocketId;
             const translated = c.translations[lang];
+            // What was said, in English letters when we have that
+            // ("aaj ki meeting mein kya hua") rather than Hindi/Telugu script.
+            const said = c.romanized || c.original;
             return (
               <div key={i} className="flex flex-wrap gap-x-2 py-1">
                 <b className="text-brand">{mine ? 'You' : c.name}</b>
-                <span>{translated || c.original}</span>
+                <span>{translated || said}</span>
                 {translated && (
                   <small className="basis-full text-muted">
-                    {languages[c.lang] ?? c.lang}: {c.original}
+                    {languages[c.lang] ?? c.lang}: {said}
                   </small>
                 )}
               </div>

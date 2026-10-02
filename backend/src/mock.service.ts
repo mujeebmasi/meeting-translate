@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Translation } from './translate/translate.service';
 
 // Stand-in for FishService/TranslateService, used only when MOCK=1. Lets the
 // whole app (video, joining, captions, timing) be tried without spending
@@ -31,12 +32,11 @@ export class MockService {
     return line;
   }
 
-  async translate(
-    text: string,
-    fromLang: string,
-    toLang: string,
-  ): Promise<string> {
+  async translate(text: string): Promise<Translation> {
     await this.delay(150 + Math.random() * 150);
-    return `[${toLang} demo] ${text}`;
+    return {
+      english: `[en demo] ${text}`,
+      romanized: `[romanized demo] ${text}`,
+    };
   }
 }

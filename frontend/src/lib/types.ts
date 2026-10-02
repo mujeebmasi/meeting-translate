@@ -22,6 +22,9 @@ export interface Caption {
   name: string;
   lang: string;
   original: string;
+  // The original in English letters ("aaj ki meeting mein kya hua"); empty
+  // when the speaker spoke English or nothing was translated.
+  romanized: string;
   translations: Record<string, string>; // lang -> translated text
   serverMs: number;
   mock: boolean;

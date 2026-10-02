@@ -40,10 +40,18 @@ export class MeetingsService {
     speakerId: number,
     lang: string,
     originalText: string,
+    romanizedText: string,
     translations: Record<string, string>,
   ) {
     return this.prisma.utterance.create({
-      data: { meetingId, speakerId, lang, originalText, translations },
+      data: {
+        meetingId,
+        speakerId,
+        lang,
+        originalText,
+        romanizedText,
+        translations,
+      },
     });
   }
 }

@@ -4,7 +4,7 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { IncomingMessage } from 'node:http';
-import { TranslateService } from './translate.service';
+import { TranslateService, parseTranslation } from './translate.service';
 
 async function withFakeClaude(
   handler: http.RequestListener,
@@ -47,7 +47,7 @@ function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 describe('TranslateService', () => {
-  it('sends the text and language names, and returns the reply', async () => {
+  it('sends the transcript and language, and returns english + romanized', async () => {
     const translate = new TranslateService();
     let received: {
       method?: string;
@@ -64,39 +64,28 @@ describe('TranslateService', () => {
           body: await readBody(req),
         };
         res.setHeader('Content-Type', 'application/json');
-        res.end(claudeReply('Namaste, kya sab log sun sakte hain?'));
+        res.end(
+          claudeReply(
+            '{"english": "What happened in today\'s meeting?", "romanized": "aaj ki meeting mein kya hua"}',
+          ),
+        );
       },
       async () => {
         const result = await translate.translate(
-          'Hi, can everyone hear me?',
-          'en',
+          'आज की मीटिंग में क्या हुआ',
           'hi',
         );
-        expect(result).toBe('Namaste, kya sab log sun sakte hain?');
+        expect(result).toEqual({
+          english: "What happened in today's meeting?",
+          romanized: 'aaj ki meeting mein kya hua',
+        });
         expect(received.method).toBe('POST');
         expect(received.url).toBe('/v1/messages');
         expect(received.apiKey).toBe('test-key');
-        expect(received.body?.system).toEqual(
-          expect.stringContaining('English'),
-        );
         expect(received.body?.system).toEqual(expect.stringContaining('Hindi'));
         expect(received.body?.messages).toEqual([
-          { role: 'user', content: 'Hi, can everyone hear me?' },
+          { role: 'user', content: 'आज की मीटिंग में क्या हुआ' },
         ]);
-      },
-    );
-  });
-
-  it('trims stray whitespace off the reply', async () => {
-    const translate = new TranslateService();
-    await withFakeClaude(
-      (req, res) => {
-        res.setHeader('Content-Type', 'application/json');
-        res.end(claudeReply('  Andaru bagunnara  \n'));
-      },
-      async () => {
-        const result = await translate.translate('Hello everyone', 'en', 'te');
-        expect(result).toBe('Andaru bagunnara');
       },
     );
   });
@@ -117,10 +106,31 @@ describe('TranslateService', () => {
         );
       },
       async () => {
-        await expect(translate.translate('Hi', 'en', 'hi')).rejects.toThrow(
+        await expect(translate.translate('नमस्ते', 'hi')).rejects.toThrow(
           /credit balance is too low/,
         );
       },
     );
+  });
+});
+
+describe('parseTranslation', () => {
+  it('reads plain JSON and trims the fields', () => {
+    expect(
+      parseTranslation('{"english": " Hi ", "romanized": " em chestunna ra "}'),
+    ).toEqual({ english: 'Hi', romanized: 'em chestunna ra' });
+  });
+
+  it('reads JSON wrapped in ```json fences', () => {
+    expect(
+      parseTranslation('```json\n{"english": "Hi", "romanized": "hai"}\n```'),
+    ).toEqual({ english: 'Hi', romanized: 'hai' });
+  });
+
+  it('falls back to the whole reply as English if it is not JSON', () => {
+    expect(parseTranslation('  Just some text ')).toEqual({
+      english: 'Just some text',
+      romanized: '',
+    });
   });
 });
