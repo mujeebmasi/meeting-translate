@@ -30,7 +30,9 @@ so the browser can't just pipe raw microphone audio to the server. Instead:
    hands back one WAV file.
 3. That WAV is uploaded to the backend (`src/lib/api.ts`'s `sendUtterance`),
    which turns it into text, translates it, and broadcasts the result over
-   the same Socket.IO connection as a `caption` event.
+   the same Socket.IO connection as a `caption` event. The caption shows
+   the English text, with the speaker's own words underneath in English
+   letters (`romanized`, e.g. "Hindi: aaj ki meeting mein kya hua").
 
 ## Setup
 

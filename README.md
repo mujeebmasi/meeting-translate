@@ -4,6 +4,16 @@ Video meetings where people speaking **Hindi, Telugu, Tamil or Kannada** are
 heard in **English** by everyone else — as a live caption and a spoken
 English voice, with the original speaker muted for English listeners.
 
+Under each English caption, what the speaker actually said is shown in
+English letters, the way people type Hindi or Telugu on their phone,
+instead of in the native script:
+
+> **How are you? Let's start today's meeting.**
+> Hindi: aap kaise hain chaliye aaj ki meeting shuru karte hain
+
+So an English listener who half-knows the language can follow the original
+too.
+
 ## Measured
 
 On a real Fish-voiced sentence per language, through the whole app (speech →
@@ -33,7 +43,7 @@ on the CPU (~0.2s per phrase), so it costs nothing per use.
 | Is the mic audio speech? | **Silero VAD** (in the browser) | A loudness check let clicks, noise and the translated voice through as "speech" |
 | Speech → text (Indian languages) | **IndicConformer** (local) | Fish returned gibberish for Telugu/Tamil/Kannada and took 4–6s; this got them right in ~0.2s |
 | Speech → text (English) | **Fish Audio** | Accurate for English |
-| Text → English | **DeepSeek** (`deepseek-flash`, thinking off) | ~0.5–1s, free token grant on signup |
+| Text → English, plus the original in English letters | **DeepSeek** (`deepseek-flash`, thinking off) | ~0.5–1s, free token grant on signup. Kept over a faster local translator (IndicTrans2) for accuracy. Both come back from one call as JSON `{english, romanized}`, so the English-letters line adds no delay. A rule-based transliterator was the other option, but it spells stiffly (`Aja kI mITiMga`) |
 | English text → voice | **Fish Audio** | Consistent voice (`FISH_VOICE_ID`) |
 
 ## Running it

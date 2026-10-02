@@ -23,7 +23,8 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
   database, on purpose: there's no row for "an open socket connection".
 - **`MeetingsService`** (`src/meetings/meetings.service.ts`) is the durable
   side, backed by Postgres via Prisma: the `Meeting`, `Participant` and
-  `Utterance` (spoken phrase + translations) tables.
+  `Utterance` (spoken phrase, the same phrase in English letters, and
+  translations) tables.
 - **`MeetingsController`** (`src/meetings/meetings.controller.ts`) has the
   actual translation pipeline. The browser uploads one WAV file per spoken
   phrase (see the frontend's `segmenter.ts` for why), which gets:
@@ -40,6 +41,10 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
      changing those two lines in `translate.service.ts`'s `client()` back
      to `new Anthropic()` (reads `ANTHROPIC_API_KEY` itself) and `MODEL` to
      a `claude-*` name.
+     The same call also returns the original in English letters
+     ("aaj ki meeting mein kya hua"): DeepSeek replies with JSON
+     `{"english", "romanized"}`, read by `parseTranslation()`, which falls
+     back to treating the whole reply as the English text if it isn't JSON.
   3. broadcast to everyone as a caption right away, then spoken in English
      by **Fish Audio text-to-speech** and pushed (as a separate `voice`
      socket event) only to the English listeners. Saved to Postgres last,
