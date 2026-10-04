@@ -37,7 +37,7 @@ export default function HomePage() {
       <h1 className="mb-2 text-4xl font-semibold">
         Meet <em className="text-brand not-italic">Translate</em>
       </h1>
-      <p className="mb-4 text-muted">Video meetings where everyone reads and hears their own language, live.</p>
+      <p className="mb-4 text-muted">Video meetings where Hindi, Telugu, Tamil and Kannada speakers are heard in English, with live captions and a translated voice.</p>
 
       <Card className="flex flex-col gap-3">
         <form onSubmit={createMeeting} className="flex flex-col gap-3">

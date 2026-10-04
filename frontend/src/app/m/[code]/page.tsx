@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { io, type Socket } from 'socket.io-client';
 import { api, errorMessage, WS_URL } from '@/lib/api';
@@ -102,7 +103,9 @@ export default function MeetingRoom() {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true }); // no camera
       } catch {
-        setLobbyError('Allow microphone access to join (localhost or https only).');
+        setLobbyError(
+          'Your microphone is blocked. Click the lock icon next to the address bar, allow the microphone, then try again.',
+        );
         setJoining(false);
         return;
       }
@@ -162,7 +165,10 @@ export default function MeetingRoom() {
 
     socket.on('full', () => setLobbyError('This meeting is full.'));
 
-    socket.on('connect_error', () => setLobbyError('Could not reach the server.'));
+    socket.on('connect_error', () => {
+      setLobbyError('Could not reach the server.');
+      setJoining(false);
+    });
   }
 
   // ---------- WebRTC ----------
@@ -332,6 +338,22 @@ export default function MeetingRoom() {
     return readAloud && lang === TARGET_LANG && peer.lang !== TARGET_LANG;
   }
 
+  // ---------- captions box ----------
+
+  // New captions are added at the bottom, so keep the box scrolled to the
+  // newest one -- unless the person has scrolled up to re-read something,
+  // in which case leave them where they are.
+  const captionBoxRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+  function onCaptionScroll() {
+    const box = captionBoxRef.current;
+    if (box) atBottomRef.current = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  }
+  useEffect(() => {
+    const box = captionBoxRef.current;
+    if (box && atBottomRef.current) box.scrollTop = box.scrollHeight;
+  }, [captions]);
+
   // ---------- controls ----------
 
   function toggleMute() {
@@ -383,7 +405,10 @@ export default function MeetingRoom() {
     return (
       <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-4 px-4">
         <h2 className="text-2xl font-semibold">Meeting not found</h2>
-        <p className="text-muted">The link may be wrong, or the server restarted.</p>
+        <p className="text-muted">Check the link or code and try again.</p>
+        <Link href="/" className="text-sm text-brand hover:underline">
+          Create a new meeting
+        </Link>
       </main>
     );
   }
@@ -392,7 +417,7 @@ export default function MeetingRoom() {
     return (
       <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-4">
         <Card className="flex flex-col gap-3">
-          <h2 className="text-xl font-semibold">{meetingTitle || 'Joining...'}</h2>
+          <h2 className="text-xl font-semibold">{meetingTitle || 'Loading meeting...'}</h2>
           <form onSubmit={join} className="flex flex-col gap-3">
             <div>
               <Label>Your name</Label>
@@ -431,12 +456,12 @@ export default function MeetingRoom() {
       )}
 
       <header className="flex flex-wrap items-center gap-3 border-b border-line bg-surface px-4 py-3">
-        <strong>{meetingTitle}</strong>
+        <strong className="min-w-0 truncate">{meetingTitle}</strong>
         <Button variant="quiet" className="text-xs" onClick={copyInviteLink}>
           {copied ? 'Copied!' : 'Copy invite link'}
         </Button>
         <span className="flex-1" />
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex items-center gap-2 text-sm whitespace-nowrap">
           I speak
           <select value={lang} onChange={(e) => changeLang(e.target.value)} className="w-auto">
             {Object.entries(languages).map(([code, langName]) => (
@@ -450,19 +475,36 @@ export default function MeetingRoom() {
       <p className="border-b border-line bg-surface px-4 py-1 text-xs text-muted">{languageHint(lang, peers, languages)}</p>
 
       <section className="grid flex-1 grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2 overflow-auto p-2">
-        <VideoTile stream={localStream} muted label={`${name} (you) · ${languages[lang] ?? lang}`} />
+        <VideoTile
+          stream={localStream}
+          muted
+          mirror
+          videoOff={cameraOff}
+          name={name}
+          label={`${name} (you) · ${languages[lang] ?? lang}${muted ? ' · mic off' : ''}`}
+        />
         {peers.map((p) => (
           <VideoTile
             key={p.socketId}
             stream={p.stream}
             muted={isTranslatedForMe(p)}
+            name={p.name}
             label={`${p.name} · ${languages[p.lang] ?? p.lang}`}
           />
         ))}
+        {peers.length === 0 && (
+          <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-line p-4 text-center">
+            <p className="text-sm text-muted">Nobody else is here yet. Send them the invite link.</p>
+            <Button variant="quiet" className="text-xs" onClick={copyInviteLink}>
+              {copied ? 'Copied!' : 'Copy invite link'}
+            </Button>
+          </div>
+        )}
       </section>
 
       <section className="border-t border-line bg-surface px-4 py-2">
-        <div className="h-38 overflow-y-auto">
+        <div ref={captionBoxRef} onScroll={onCaptionScroll} className="h-38 overflow-y-auto">
+          {captions.length === 0 && <p className="py-1 text-sm text-muted">Captions will appear here when someone speaks.</p>}
           {captions.map((c, i) => {
             const mine = c.from === mySocketId;
             const translated = c.translations[lang];
@@ -486,18 +528,22 @@ export default function MeetingRoom() {
       </section>
 
       <footer className="flex flex-wrap items-center gap-3 border-t border-line bg-surface px-4 py-3">
-        <Button variant="quiet" onClick={toggleMute}>
+        {/* Red while off, so it's obvious at a glance that nobody can hear/see you. */}
+        <Button variant={muted ? 'danger' : 'quiet'} onClick={toggleMute}>
           {muted ? 'Unmute' : 'Mute'}
         </Button>
-        <Button variant="quiet" onClick={toggleCamera}>
+        <Button variant={cameraOff ? 'danger' : 'quiet'} onClick={toggleCamera}>
           {cameraOff ? 'Camera on' : 'Camera off'}
         </Button>
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} className="w-auto" />
-          Play translated voice (mutes the original)
-        </label>
-        <span className="flex-1" />
-        <Button variant="danger" onClick={leave}>
+        {/* Only English listeners are sent a translated voice, so the option
+            means nothing to anyone else. */}
+        {lang === TARGET_LANG && (
+          <label className="flex items-center gap-2 text-sm whitespace-nowrap" title="Plays the English voice and mutes the speaker's own voice">
+            <input type="checkbox" checked={readAloud} onChange={(e) => setReadAloud(e.target.checked)} className="w-auto" />
+            Translated voice
+          </label>
+        )}
+        <Button variant="danger" className="ml-auto" onClick={leave}>
           Leave
         </Button>
       </footer>
