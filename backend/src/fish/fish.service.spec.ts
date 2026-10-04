@@ -2,7 +2,7 @@
 // so we can check the request/response wiring without a real API key.
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { FishService } from './fish.service';
+import { FishService, cleanTranscript } from './fish.service';
 
 // Starts a throwaway server and points FISH_BASE_URL at it for the test body.
 async function withFakeFish(
@@ -83,5 +83,20 @@ describe('FishService', () => {
         expect(bytes.toString()).toBe('fake mp3 bytes');
       },
     );
+  });
+});
+
+describe('cleanTranscript', () => {
+  it('drops a Chinese "word" heard in background noise', () => {
+    expect(cleanTranscript('啊。')).toBe('');
+  });
+
+  it('keeps English and Hindi text as it is', () => {
+    expect(cleanTranscript(' Yes. Yes. Yes. ')).toBe('Yes. Yes. Yes.');
+    expect(cleanTranscript('ठीक है, ठीक है।')).toBe('ठीक है, ठीक है।');
+  });
+
+  it('removes Chinese characters mixed into real words', () => {
+    expect(cleanTranscript('Okay 啊 let us start')).toBe('Okay let us start');
   });
 });

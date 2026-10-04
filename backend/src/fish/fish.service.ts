@@ -38,8 +38,7 @@ export class FishService {
       );
 
     const data = (await res.json()) as { text?: string };
-    // Some models put markers like <|speaker:0|> in the text; we only want words.
-    return (data.text || '').replace(/<\|[^|]*\|>/g, '').trim();
+    return cleanTranscript(data.text || '');
   }
 
   // Returns Fish's streaming response so the caller can pipe it to the browser.
@@ -73,4 +72,23 @@ export class FishService {
       );
     return res;
   }
+}
+
+// Tidies Fish's raw text before it becomes a caption:
+// - Some models put markers like <|speaker:0|> in the text; we only want words.
+// - On a cough or background noise Fish sometimes "hears" Chinese, e.g. "啊。"
+//   (seen in a real two-person test). Nobody in these meetings speaks Chinese,
+//   Japanese or Korean, so those characters are dropped.
+// If nothing that looks like a word is left, it returns '' -- the controller
+// already treats an empty transcript as noise and sends no caption.
+export function cleanTranscript(raw: string): string {
+  const text = raw
+    .replace(/<\|[^|]*\|>/g, '')
+    .replace(
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/gu,
+      '',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+  return /[\p{L}\p{N}]/u.test(text) ? text : '';
 }

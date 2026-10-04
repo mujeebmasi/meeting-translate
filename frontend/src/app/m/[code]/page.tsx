@@ -399,7 +399,7 @@ export default function MeetingRoom() {
               <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} required />
             </div>
             <div>
-              <Label>Your language (what you speak and want to read)</Label>
+              <Label>The language you will speak</Label>
               <select value={lang} onChange={(e) => setLang(e.target.value)}>
                 {Object.entries(languages).map(([code, langName]) => (
                   <option key={code} value={code}>
@@ -407,6 +407,10 @@ export default function MeetingRoom() {
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-muted">
+                Pick English to hear Hindi, Telugu, Tamil and Kannada speakers in English. Pick your own language if
+                you will speak it, and English listeners will hear you translated.
+              </p>
             </div>
             <Button type="submit" disabled={joining || !meetingTitle}>
               {joining ? 'Joining...' : 'Join meeting'}
@@ -443,6 +447,7 @@ export default function MeetingRoom() {
           </select>
         </label>
       </header>
+      <p className="border-b border-line bg-surface px-4 py-1 text-xs text-muted">{languageHint(lang, peers, languages)}</p>
 
       <section className="grid flex-1 grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-2 overflow-auto p-2">
         <VideoTile stream={localStream} muted label={`${name} (you) · ${languages[lang] ?? lang}`} />
@@ -498,4 +503,15 @@ export default function MeetingRoom() {
       </footer>
     </main>
   );
+}
+
+// One line under the header saying what the "I speak" choice means right now.
+// In a real two-person test both people were on Hindi at one point and
+// wondered why nothing was translated -- this says why, so nobody has to guess.
+function languageHint(lang: string, peers: { lang: string }[], languages: Languages): string {
+  const mine = languages[lang] ?? lang;
+  if (lang === TARGET_LANG) return 'You hear Hindi, Telugu, Tamil and Kannada speakers translated into English.';
+  if (peers.length > 0 && !peers.some((p) => p.lang === TARGET_LANG))
+    return `Nobody else is on English, so your ${mine} is not being translated. To hear someone in English, set "I speak" to English.`;
+  return `Speak ${mine}. English listeners hear you translated into English.`;
 }
