@@ -1,6 +1,6 @@
 # Meet Translate — backend
 
-NestJS API + WebSocket signalling for [meet-translate-frontend](../meet-translate-frontend).
+NestJS API + WebSocket signalling for the [frontend](../frontend).
 A video-meeting app where each person picks their own language and everyone's
 speech shows up as live translated captions.
 
@@ -77,7 +77,7 @@ npm run start:dev
 ```
 
 API runs at `http://localhost:4000/api`, WebSocket at `ws://localhost:4000/ws`.
-Then run [meet-translate-frontend](../meet-translate-frontend) alongside it.
+Then run the [frontend](../frontend) alongside it.
 
 ## Testing
 

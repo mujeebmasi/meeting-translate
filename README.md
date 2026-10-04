@@ -14,6 +14,21 @@ instead of in the native script:
 So an English listener who half-knows the language can follow the original
 too.
 
+## In the meeting
+
+- **Pick the language you will speak.** English means "I want to hear
+  everyone else in English". A line under the header says what your choice
+  does right now, including when nothing is being translated because nobody
+  is on English. It can be changed mid-call.
+- **Captions** stay scrolled to the newest one, unless you scroll up to
+  re-read.
+- **Video tiles** show each person's name and language. Someone with no
+  camera, or with it off, shows as their initial. Your own camera is
+  mirrored, and your tile says "mic off" while you're muted.
+- **Mute and Camera off turn red** while off. "Translated voice" (English
+  listeners only) switches between the English voice and the speaker's own.
+- Alone in a call, a tile offers the invite link to copy.
+
 ## Measured
 
 On a real Fish-voiced sentence per language, through the whole app (speech →
@@ -24,6 +39,13 @@ text → English → spoken English), on a laptop CPU:
 | Hindi / Telugu / Tamil / Kannada | 1.3–1.6s | 2.3–2.7s |
 
 Target was under 4s. Times are counted from when the speaker pauses.
+
+**Real two-person call** (two people, two devices, different networks,
+Hindi speaker → English listener and back): server time from receiving a
+sentence to sending its caption was **0.79s median, 1.5s for 90% of
+sentences**, over 75 sentences. Most mistakes in that call came from someone
+being on the wrong language, which is what the hint line above now
+addresses.
 
 ## Three parts
 

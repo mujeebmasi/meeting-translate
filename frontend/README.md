@@ -1,8 +1,8 @@
 # Meet Translate — frontend
 
-Next.js UI for [meet-translate-backend](../meet-translate-backend). A video
-call where each person picks their own language and sees everyone else's
-speech as live translated captions, under 4 seconds after they stop talking.
+Next.js UI for the [backend](../backend). A video call where Hindi, Telugu,
+Tamil and Kannada speakers are heard in English, as live captions and a
+translated voice, under 4 seconds after they stop talking.
 
 ## Stack
 
@@ -18,13 +18,31 @@ Next.js 16 (App Router) · TypeScript · React 19 · Tailwind CSS 4 ·
   UI -- see the comments in there for why a couple of values (like the
   currently-selected language) are kept in a `useRef` alongside React state.
 
+## The meeting screen
+
+- **Header:** meeting name, copy-invite-link, and the "I speak" language
+  dropdown. A line under it explains what the current choice means
+  (`languageHint()` at the bottom of the meeting page), e.g. "Nobody else is
+  on English, so your Hindi is not being translated."
+- **Video tiles** (`src/components/video-tile.tsx`): name and language on
+  each. With no picture (still connecting, no camera, camera off) the tile
+  shows the person's initial. The `<video>` element is hidden rather than
+  removed, because it also plays that person's audio. Your own tile is
+  mirrored and says "mic off" when muted.
+- **Captions box:** English caption, with the speaker's words in English
+  letters underneath. It auto-scrolls to the newest caption, but not while
+  you've scrolled up to read an older one.
+- **Footer:** Mute and Camera off (red while off), "Translated voice"
+  (shown only to English listeners), Leave.
+
 ## How the translation pipeline works, from the browser's side
 
-Fish Audio's speech-to-text needs a finished audio file, not a live stream,
+Speech-to-text needs a finished audio file per sentence, not a live stream,
 so the browser can't just pipe raw microphone audio to the server. Instead:
 
-1. `public/mic-worklet.js` runs on the browser's audio thread and hands small
-   blocks of raw microphone samples to the page.
+1. **Silero VAD** (`@ricky0123/vad-web`, loaded from a CDN) checks every
+   ~32ms of microphone audio for speech. While the translated voice is
+   playing, the mic is treated as silent so it isn't picked up again.
 2. `src/lib/segmenter.ts` watches those blocks and decides when a spoken
    phrase has ended (a pause, or a run-on sentence past ~4 seconds), then
    hands back one WAV file.
@@ -49,9 +67,9 @@ you're running the backend somewhere else -- copy `.env.local.example` to
 npm run dev
 ```
 
-Open http://localhost:3000. You'll need
-[meet-translate-backend](../meet-translate-backend) running alongside this
-(with `MOCK=1` if you don't have Fish/Anthropic API credit yet).
+Open http://localhost:3000. You'll need the [backend](../backend) running
+alongside this (with `MOCK=1` if you don't have Fish/DeepSeek API credit
+yet).
 
 Camera and microphone access require `localhost` or `https://` -- a plain
 `http://` address on another machine won't be allowed to use them.
