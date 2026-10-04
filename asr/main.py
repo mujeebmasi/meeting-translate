@@ -65,6 +65,13 @@ model.models["ctc_decoder"] = tuned_session("ctc_decoder")
 app = FastAPI()
 
 
+@app.get("/health")
+def health():
+    """Lets the backend's /api/health check this service is up. The model is
+    loaded before the server starts, so answering at all means it's ready."""
+    return {"ok": True}
+
+
 def wav_to_tensor(data: bytes) -> torch.Tensor:
     """Turn a 16-bit PCM WAV file into the (1, samples) float tensor at 16 kHz
     that the model expects, averaging stereo down to mono."""

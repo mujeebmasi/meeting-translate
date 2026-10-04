@@ -74,4 +74,13 @@ describe('PresenceService', () => {
       lang: 'en',
     });
   });
+
+  it('forgets a meeting entirely once the last person leaves', () => {
+    const presence = new PresenceService();
+    presence.add('room1', fakePeer({ socketId: 'a' }));
+    presence.remove('room1', 'a');
+    const rooms = (presence as unknown as { rooms: Map<string, unknown> })
+      .rooms;
+    expect(rooms.has('room1')).toBe(false);
+  });
 });

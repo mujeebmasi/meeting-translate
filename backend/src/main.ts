@@ -1,19 +1,18 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { MOCK } from './mock-flag';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   if (MOCK) {
-    console.warn(
+    logger.warn(
       'MOCK=1: captions are fake demo text, not real speech-to-text or translation.',
     );
   } else {
     for (const key of ['FISH_API_KEY', 'DEEPSEEK_API_KEY']) {
       if (!process.env[key])
-        console.warn(
-          `Warning: ${key} is not set. Translation will fail until it is.`,
-        );
+        logger.warn(`${key} is not set. Translation will fail until it is.`);
     }
   }
 
@@ -34,7 +33,7 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 4000;
   await app.listen(port);
-  console.log(`API running on http://localhost:${port}/api`);
+  logger.log(`API running on http://localhost:${port}/api`);
 }
 
 void bootstrap();

@@ -34,7 +34,11 @@ export class PresenceService {
   }
 
   remove(meetingCode: string, socketId: string): void {
-    this.rooms.get(meetingCode)?.delete(socketId);
+    const room = this.rooms.get(meetingCode);
+    room?.delete(socketId);
+    // Forget a meeting once its last person leaves, so a server that runs
+    // for weeks doesn't keep an empty entry for every meeting ever held.
+    if (room?.size === 0) this.rooms.delete(meetingCode);
   }
 
   get(meetingCode: string, socketId: string): LivePeer | undefined {

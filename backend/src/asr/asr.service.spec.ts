@@ -57,4 +57,18 @@ describe('AsrService', () => {
       },
     );
   });
+
+  it('says the service is not running when nothing answers', async () => {
+    const asr = new AsrService();
+    const prev = process.env.ASR_URL;
+    process.env.ASR_URL = 'http://127.0.0.1:1'; // nothing listens on port 1
+    try {
+      await expect(asr.transcribe(Buffer.from('x'), 'hi')).rejects.toThrow(
+        /not running at http:\/\/127\.0\.0\.1:1/,
+      );
+      await expect(asr.isUp()).resolves.toBe(false);
+    } finally {
+      process.env.ASR_URL = prev;
+    }
+  });
 });

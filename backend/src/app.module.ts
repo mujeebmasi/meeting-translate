@@ -7,6 +7,7 @@ import { TranslateModule } from './translate/translate.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { MockModule } from './mock.module';
 import { LanguagesController } from './languages.controller';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -19,6 +20,6 @@ import { LanguagesController } from './languages.controller';
     MockModule,
     MeetingsModule,
   ],
-  controllers: [LanguagesController],
+  controllers: [LanguagesController, HealthController],
 })
 export class AppModule {}

@@ -63,6 +63,10 @@ export class MeetingsGateway implements OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() body: JoinMessage,
   ): Promise<void> {
+    // One connection is one person. A second "join" on the same connection
+    // would otherwise create a second Participant row for them.
+    if (socketData(client).code) return;
+
     const meeting = await this.meetings.findByCode(body.code).catch(() => null);
     if (!meeting) {
       client.disconnect(true);
@@ -114,12 +118,16 @@ export class MeetingsGateway implements OnGatewayDisconnect {
 
   // `to` is the other browser's socket id (from the peer list in "welcome"
   // or a "peer-joined" message) -- socket.io lets us target one connection
-  // directly by treating its id as a room of one.
+  // directly by treating its id as a room of one. Only passed on if `to` is
+  // in the sender's own meeting, so nobody can send connection offers to
+  // people in a different meeting.
   @SubscribeMessage('signal')
   handleSignal(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { to: string; data: unknown },
   ): void {
+    const code = socketData(client).code;
+    if (!code || !this.presence.get(code, body.to)) return;
     this.server
       .to(body.to)
       .emit('signal', { from: client.id, data: body.data });

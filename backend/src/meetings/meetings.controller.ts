@@ -4,6 +4,7 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   NotFoundException,
   Param,
   Post,
@@ -24,6 +25,8 @@ import { TARGET_LANG, needsTranslation } from '../languages';
 
 @Controller('meetings')
 export class MeetingsController {
+  private readonly logger = new Logger(MeetingsController.name);
+
   constructor(
     private meetings: MeetingsService,
     private presence: PresenceService,
@@ -115,7 +118,7 @@ export class MeetingsController {
       serverMs,
       mock: MOCK,
     });
-    console.log(`[${code}] ${speaker.name}: "${original}" (${serverMs}ms)`);
+    this.logger.log(`[${code}] ${speaker.name}: "${original}" (${serverMs}ms)`);
 
     // 2. Then the spoken translation, pushed straight to the listeners who
     //    need it -- their browser plays it without having to ask for it
@@ -125,16 +128,18 @@ export class MeetingsController {
       this.fish
         .speak(translated)
         .then((res) => res.arrayBuffer())
-        .then((audio) =>
+        .then((audio) => {
           this.gateway.sendVoice(code, TARGET_LANG, {
             from: speaker.socketId,
             audio: Buffer.from(audio).toString('base64'),
-          }),
-        )
+          });
+          // Same clock as serverMs above: from receiving the WAV to sending
+          // the English voice, so the two numbers can be compared.
+          this.logger.log(`[${code}] voice sent (${Date.now() - startedAt}ms)`);
+        })
         .catch((err: unknown) =>
-          console.error(
-            'Voice failed:',
-            err instanceof Error ? err.message : err,
+          this.logger.error(
+            `Voice failed: ${err instanceof Error ? err.message : String(err)}`,
           ),
         );
     }
@@ -150,7 +155,9 @@ export class MeetingsController {
         translations,
       )
       .catch((err: unknown) =>
-        console.error('Save failed:', err instanceof Error ? err.message : err),
+        this.logger.error(
+          `Save failed: ${err instanceof Error ? err.message : String(err)}`,
+        ),
       );
 
     return { serverMs };

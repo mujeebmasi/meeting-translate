@@ -13,11 +13,21 @@ export class AsrService {
   }
 
   async transcribe(wavBuffer: Buffer, lang: string): Promise<string> {
-    const res = await fetch(`${this.baseUrl()}/transcribe?lang=${lang}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'audio/wav' },
-      body: new Uint8Array(wavBuffer),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl()}/transcribe?lang=${lang}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: new Uint8Array(wavBuffer),
+      });
+    } catch {
+      // fetch() itself only throws when nothing answered at all -- most
+      // likely the Python service in ../asr was never started. Say that,
+      // instead of Node's bare "fetch failed".
+      throw new Error(
+        `Local speech-to-text service is not running at ${this.baseUrl()} (start it from the asr folder)`,
+      );
+    }
     if (!res.ok) {
       throw new Error(
         `Local speech-to-text failed (${res.status}): ${await res.text()}`,
@@ -25,5 +35,17 @@ export class AsrService {
     }
     const data = (await res.json()) as { text?: string };
     return (data.text || '').trim();
+  }
+
+  // For /api/health: is the Python service answering at all?
+  async isUp(): Promise<boolean> {
+    try {
+      const res = await fetch(`${this.baseUrl()}/health`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
   }
 }
