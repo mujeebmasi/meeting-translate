@@ -178,26 +178,15 @@ export class MeetingsController {
         `done ${caption.serverMs}ms)`,
     );
 
-    // The spoken translation, pushed straight to the listeners who need it
-    // -- their browser plays it without having to ask for it.
-    if (translated && !MOCK) {
-      this.fish
-        .speak(translated)
-        .then((res) => res.arrayBuffer())
-        .then((audio) => {
-          this.gateway.sendVoice(code, TARGET_LANG, {
-            from: speaker.socketId,
-            audio: Buffer.from(audio).toString('base64'),
-          });
-          // Same clock as the caption times above, so they can be compared.
-          this.logger.log(`[${code}] voice sent (${Date.now() - startedAt}ms)`);
-        })
-        .catch((err: unknown) =>
-          this.logger.error(
-            `Voice failed: ${err instanceof Error ? err.message : String(err)}`,
-          ),
-        );
-    }
+    // The spoken translation, pushed straight to the listeners who need it.
+    if (translated && !MOCK)
+      void this.streamVoice(
+        code,
+        caption.id,
+        speaker.socketId,
+        translated,
+        startedAt,
+      );
 
     // Saving the transcript doesn't need to hold anything up either.
     this.meetings
@@ -219,5 +208,42 @@ export class MeetingsController {
       );
 
     return { serverMs: caption.serverMs };
+  }
+
+  // Fish sends the audio in pieces as it generates it: the first after
+  // ~0.35s, the last after ~1.1s. Each piece goes to the English listeners
+  // straight away (their browser starts playing on the first one), instead
+  // of waiting for the whole file. "voice-end" always follows -- even after
+  // a failure -- so a listener's player never waits for audio that won't come.
+  private async streamVoice(
+    code: string,
+    id: string,
+    from: string,
+    text: string,
+    startedAt: number,
+  ): Promise<void> {
+    let firstMs = 0;
+    try {
+      const res = await this.fish.speak(text);
+      if (!res.body) throw new Error('Fish sent no audio');
+      for await (const piece of res.body) {
+        if (!firstMs) firstMs = Date.now() - startedAt;
+        this.gateway.sendVoice(code, TARGET_LANG, 'voice-chunk', {
+          id,
+          from,
+          audio: Buffer.from(piece).toString('base64'),
+        });
+      }
+      // Same clock as the caption times, so they can be compared.
+      this.logger.log(
+        `[${code}] voice: first audio ${firstMs}ms, all audio ${Date.now() - startedAt}ms`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Voice failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    } finally {
+      this.gateway.sendVoice(code, TARGET_LANG, 'voice-end', { id, from });
+    }
   }
 }

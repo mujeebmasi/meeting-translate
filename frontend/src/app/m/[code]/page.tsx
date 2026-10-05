@@ -6,7 +6,8 @@ import { useParams, useRouter } from 'next/navigation';
 import { io, type Socket } from 'socket.io-client';
 import { api, errorMessage, WS_URL } from '@/lib/api';
 import { Segmenter } from '@/lib/segmenter';
-import { TARGET_LANG, type Caption, type Languages, type PublicPeer, type Voice } from '@/lib/types';
+import { TARGET_LANG, type Caption, type Languages, type PublicPeer, type VoiceChunk } from '@/lib/types';
+import { VoicePlayer } from '@/lib/voice-player';
 import { Button, Card, ErrorText, Label } from '@/components/ui';
 import { VideoTile } from '@/components/video-tile';
 
@@ -60,8 +61,13 @@ export default function MeetingRoom() {
   const [readAloud, setReadAloud] = useState(true);
 
   const socketRef = useRef<Socket | null>(null);
-  const speechQueueRef = useRef<Promise<void>>(Promise.resolve());
   const playingVoiceRef = useRef(false); // true while a translated voice plays
+  // Created on first use (browser-only APIs inside), then kept for the call.
+  const voicePlayerRef = useRef<VoicePlayer | null>(null);
+  function voicePlayer(): VoicePlayer {
+    voicePlayerRef.current ??= new VoicePlayer((playing) => (playingVoiceRef.current = playing));
+    return voicePlayerRef.current;
+  }
   // Saved outside React state so callbacks registered once (when the socket
   // connects) always see the latest value, instead of the value from
   // whichever render happened to be active when the listener was attached.
@@ -167,9 +173,12 @@ export default function MeetingRoom() {
     });
 
     // Arrives a moment after the caption, only if I'm listening in English.
-    socket.on('voice', (voice: Voice) => {
-      if (readAloudRef.current && voice.from !== socketRef.current?.id) playVoice(voice.audio);
+    // Pieces of the English voice, sent the moment Fish produces them, so
+    // playback starts before the whole sentence's audio exists.
+    socket.on('voice-chunk', (voice: VoiceChunk) => {
+      if (readAloudRef.current && voice.from !== socketRef.current?.id) voicePlayer().chunk(voice.id, voice.audio);
     });
+    socket.on('voice-end', (voice: { id: string }) => voicePlayer().end(voice.id));
 
     socket.on('full', () => setLobbyError('This meeting is full.'));
 
@@ -317,31 +326,6 @@ export default function MeetingRoom() {
   useEffect(() => {
     myParticipantIdRef.current = myParticipantId;
   }, [myParticipantId]);
-
-  // ---------- playing the translated voice (Fish Audio) ----------
-
-  // The server pushes the translated audio as base64 straight after the
-  // caption -- no request from here, so no extra round trip. Clips are
-  // queued so two quick sentences play one after another, not on top of
-  // each other.
-  function playVoice(base64Mp3: string) {
-    speechQueueRef.current = speechQueueRef.current
-      .then(
-        () =>
-          new Promise<void>((done) => {
-            const audio = new Audio(`data:audio/mpeg;base64,${base64Mp3}`);
-            const finish = () => {
-              playingVoiceRef.current = false;
-              done();
-            };
-            playingVoiceRef.current = true; // mic is ignored until it ends
-            audio.onended = finish;
-            audio.onerror = finish;
-            audio.play().catch(finish);
-          }),
-      )
-      .catch(() => {});
-  }
 
   // A speaker whose words get translated into my language is muted outright
   // (not just while their translation plays), so I only ever hear the

@@ -193,10 +193,11 @@ export class MeetingsGateway implements OnGatewayDisconnect {
 
   // Spoken audio is much bigger than a caption, so it only goes to the
   // people listening in that language, not the whole room.
-  sendVoice(code: string, lang: string, payload: unknown): void {
+  // `event` is "voice-chunk" (a piece of the audio) or "voice-end".
+  sendVoice(code: string, lang: string, event: string, payload: unknown): void {
     for (const peer of this.presence.list(code)) {
       if (peer.lang === lang) {
-        this.server.to(peer.socketId).emit('voice', payload);
+        this.server.to(peer.socketId).emit(event, payload);
       }
     }
   }

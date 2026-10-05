@@ -34,11 +34,13 @@ export interface Caption {
   mock: boolean;
 }
 
-// The spoken version of a translated caption, sent right after the caption
-// itself and only to people listening in the translated language.
-export interface Voice {
+// A piece of the spoken version of a translated caption, sent only to people
+// listening in English, as soon as Fish produces it. All pieces of one
+// sentence share the caption's `id`; a "voice-end" message follows the last.
+export interface VoiceChunk {
+  id: string;
   from: string; // speaker's socketId
-  audio: string; // base64 mp3
+  audio: string; // base64, part of an mp3
 }
 
 // Translation only ever goes into English (Hindi/Telugu -> English), same
