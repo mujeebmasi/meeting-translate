@@ -21,7 +21,10 @@ too.
   speaker stops (up to ~1s when Groq is having a slow moment); the finished
   caption at 0.58–0.76s; **the English voice starts playing at 1.26–1.48s**.
   Measured end to end through two browser tabs with real speech recognition,
-  translation and voice (Hindi and Telugu).
+  translation and voice (Hindi and Telugu), on the same laptop.
+- **Over the internet** (both tabs going through the public Cloudflare
+  links, as a remote user would): first English words **0.79–0.99s**, voice
+  **1.15–1.50s**, all 4 languages translated correctly.
 - **Original target: under 4s.** Then pushed to under 0.7s for the first
   words, and met. How: [Getting under 0.7s](#getting-under-07s).
 
@@ -58,6 +61,13 @@ too.
 10. **Captions took 1.1–1.6s** → streamed word by word, started early,
     a 250ms Windows `localhost` delay removed, and Groq as the translator:
     now 0.52–0.69s.
+11. **Sentences over 4s were cut in two**, sometimes mid-word, and the
+    second half mistranslated → the cut moved to 8s.
+12. **A sentence after a pause was translated without what came before**
+    ("the Pledge of Allegiance" for a misheard "today's meeting") → the
+    translator gets the meeting's last 3 sentences as background.
+13. **The first sentence of a call took 2.4s** (the speech model's first
+    run per language is slow) → each language is run once at startup.
 
 More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 
@@ -131,6 +141,16 @@ and translation, on a laptop. Times are from when the speaker stops talking.
 | + streaming, early start, `localhost` fix | 1.1–1.3s | |
 | + Groq instead of DeepSeek | **0.52–0.69s** | ~1.65–1.9s |
 | + voice played while it's still arriving | | **1.26–1.48s** |
+
+**Over the internet**: both tabs through the public Cloudflare links, one
+recorded sentence in each language, then Hindi and Telugu again:
+
+| | First English words | Voice starts | Translation |
+|---|---|---|---|
+| Hindi, first sentence of the call | 1.22s | 1.71s | ✅ |
+| Telugu, Tamil, Kannada, Hindi | 0.79–0.99s | 1.15–1.50s | ✅ all 9 captions |
+
+The tunnel and a busy CPU add ~0.3s over the same-laptop numbers above.
 
 **Real two-person call** (two people, two devices, different networks,
 Hindi speaker → English listener and back, before the speed-ups above):
@@ -338,7 +358,22 @@ A fully streaming speech-to-speech model was ruled out: Hindi puts the verb
 (and "not") at the end of the sentence, so translating before the sentence
 ends means guessing the meaning.
 
-**11. Not deployed, on purpose.** The speech model needs ~3–4 GB of memory,
+**11. Testing over the internet found three problems same-laptop tests hid.**
+A run through the public links, with real 4–5s sentences:
+- **The 4s phrase cut** (from the early, slow version, so long monologues
+  still got captions) split ordinary sentences, sometimes mid-word, and the
+  second half was mistranslated. Now 8s: delay is counted from when the
+  speaker stops, so it costs nothing for normal sentences.
+- **A sentence after a real pause was translated on its own.** "How are
+  you?" and then a Kannada sentence with "meeting" misheard as "loyalty"
+  became "the Pledge of Allegiance". The translator now gets the meeting's
+  last 3 sentences as background, marked "do not translate", the way a
+  human interpreter keeps the conversation in mind.
+- **The first sentence of a call took 2.4s**, because the speech model's
+  first run per language is slow. The service now runs each language once
+  at startup.
+
+**12. Not deployed, on purpose.** The speech model needs ~3–4 GB of memory,
 which rules out free hosting, and a public link would let anyone spend the
 translation and voice credit. Live demos run from a laptop through a free
 Cloudflare tunnel instead.
@@ -355,6 +390,9 @@ Cloudflare tunnel instead.
    uv run python download_model.py
    uv run uvicorn main:app --port 5001
    ```
+   It takes ~30s to start: it loads the model, then runs each language once
+   so the first sentence of a call isn't slow. `GET /api/health` on the
+   backend says when it's ready.
 2. **Backend** — see `backend/README.md` for `.env` (Postgres, Fish, DeepSeek, and optionally Groq):
    ```bash
    cd backend

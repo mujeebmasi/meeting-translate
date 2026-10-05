@@ -43,6 +43,9 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
      quota, or has no key. DeepSeek is called through `@anthropic-ai/sdk`
      because its API accepts Claude's request shape; its env vars are
      named `DEEPSEEK_*` so the key's name says what it is.
+     The translator also gets the meeting's last 3 sentences as background
+     (not to be translated), so a sentence that follows a pause still has
+     its context -- this is what lets it repair misheard words.
      The same call also returns the original in English letters
      ("aaj ki meeting mein kya hua") as JSON `{"english", "romanized"}`.
      The reply is streamed: `englishSoFar()` reads the English out of the

@@ -45,7 +45,7 @@ so the browser can't just pipe raw microphone audio to the server. Instead:
    ~32ms of microphone audio for speech. While the translated voice is
    playing, the mic is treated as silent so it isn't picked up again.
 2. `src/lib/segmenter.ts` watches those blocks and decides when a spoken
-   phrase has ended (a 0.5s pause, or a run-on sentence past ~4 seconds),
+   phrase has ended (a 0.5s pause, or a run-on sentence past ~8 seconds),
    then hands back one WAV file. To save time it sends the audio early,
    after only 0.2s of pause, marked tentative, then confirms it if the
    pause reaches 0.5s or cancels it if the speaker carries on (the
