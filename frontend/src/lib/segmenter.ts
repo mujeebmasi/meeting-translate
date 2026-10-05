@@ -11,6 +11,12 @@
 // speakers through as "speech", and each of those became a garbled caption.
 
 const END_SILENCE_MS = 500; // this much quiet ends a phrase
+// ...but the audio is already sent after this much, marked "tentative", so
+// the server can start on it while we wait to see whether the pause lasts.
+// If they speak again before END_SILENCE_MS it's cancelled, so where
+// sentences end -- and so translation quality -- is exactly as before. This
+// alone gets captions out ~0.3s sooner. (Server side: PhraseGate.)
+const EARLY_SEND_MS = 200;
 // Long speech without a proper pause is still cut, so captions keep coming.
 // After MAX_PHRASE_MS the phrase ends at the next brief gap between words
 // (any non-speech block), not instantly -- an instant cut split a word in
@@ -49,11 +55,17 @@ function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
-export type OnPhrase = (wavBlob: Blob, endedAtMs: number) => void;
+export interface PhraseHandlers {
+  // A phrase's audio. `tentative` = sent early, still waiting on
+  // confirm/cancel; `endedAtMs` = when the speech in it stopped.
+  onPhrase: (wavBlob: Blob, id: string, tentative: boolean, endedAtMs: number) => void;
+  onConfirm: (id: string) => void; // the pause lasted: a real sentence end
+  onCancel: (id: string) => void; // they kept talking: drop the early send
+}
 
 export class Segmenter {
   private sampleRate: number;
-  private onPhrase: OnPhrase;
+  private handlers: PhraseHandlers;
   // Exposed (not truly private) so tests can check state resets correctly
   // between phrases, the same way the old plain-JS version did.
   speaking = false;
@@ -61,10 +73,11 @@ export class Segmenter {
   private totalMs = 0;
   private speechMs = 0;
   private silenceMs = 0;
+  private earlyId: string | null = null; // the tentative send awaiting a decision
 
-  constructor(sampleRate: number, onPhrase: OnPhrase) {
+  constructor(sampleRate: number, handlers: PhraseHandlers) {
     this.sampleRate = sampleRate;
-    this.onPhrase = onPhrase;
+    this.handlers = handlers;
   }
 
   private reset(): void {
@@ -73,6 +86,7 @@ export class Segmenter {
     this.totalMs = 0;
     this.speechMs = 0;
     this.silenceMs = 0;
+    this.earlyId = null;
   }
 
   push(block: Float32Array, isVoice: boolean): void {
@@ -99,8 +113,17 @@ export class Segmenter {
     if (isVoice) {
       this.speechMs += ms;
       this.silenceMs = 0;
+      // Speaking again: the early send was mid-sentence after all.
+      if (this.earlyId) {
+        this.handlers.onCancel(this.earlyId);
+        this.earlyId = null;
+      }
     } else {
       this.silenceMs += ms;
+      if (this.silenceMs >= EARLY_SEND_MS && !this.earlyId && this.speechMs >= MIN_SPEECH_MS) {
+        this.earlyId = crypto.randomUUID();
+        this.handlers.onPhrase(this.wav(), this.earlyId, true, Date.now() - this.silenceMs);
+      }
     }
 
     const pausedLongEnough = this.silenceMs >= END_SILENCE_MS;
@@ -108,15 +131,22 @@ export class Segmenter {
     if (pausedLongEnough || longAndBetweenWords || this.totalMs >= HARD_MAX_PHRASE_MS) this.finish();
   }
 
+  private wav(): Blob {
+    const all = new Float32Array(this.blocks.reduce((n, b) => n + b.length, 0));
+    let offset = 0;
+    for (const b of this.blocks) {
+      all.set(b, offset);
+      offset += b.length;
+    }
+    return encodeWav(all, this.sampleRate);
+  }
+
   private finish(): void {
-    if (this.speechMs >= MIN_SPEECH_MS) {
-      const all = new Float32Array(this.blocks.reduce((n, b) => n + b.length, 0));
-      let offset = 0;
-      for (const b of this.blocks) {
-        all.set(b, offset);
-        offset += b.length;
-      }
-      this.onPhrase(encodeWav(all, this.sampleRate), Date.now());
+    if (this.earlyId) {
+      // Already sent early, and nothing was said since: just confirm it.
+      this.handlers.onConfirm(this.earlyId);
+    } else if (this.speechMs >= MIN_SPEECH_MS) {
+      this.handlers.onPhrase(this.wav(), crypto.randomUUID(), false, Date.now() - this.silenceMs);
     }
     this.reset();
   }

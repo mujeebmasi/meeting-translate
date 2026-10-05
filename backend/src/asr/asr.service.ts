@@ -9,7 +9,10 @@ export class AsrService {
   // Read per call (not stored once) so a test can point this at a fake
   // server after the service already exists, same as FishService.
   private baseUrl(): string {
-    return process.env.ASR_URL || 'http://localhost:5001';
+    // 127.0.0.1, not "localhost": on Windows "localhost" tries IPv6 first,
+    // which uvicorn doesn't listen on, and the fallback cost ~250ms whenever
+    // the connection wasn't already open (measured).
+    return process.env.ASR_URL || 'http://127.0.0.1:5001';
   }
 
   async transcribe(wavBuffer: Buffer, lang: string): Promise<string> {

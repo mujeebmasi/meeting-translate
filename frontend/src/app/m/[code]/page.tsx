@@ -154,8 +154,16 @@ export default function MeetingRoom() {
       await handleSignal(msg.from, msg.data, stream);
     });
 
+    // The same caption arrives several times as its English streams in, so
+    // update it in place by id rather than adding a new line each time.
     socket.on('caption', (caption: Caption) => {
-      setCaptions((prev) => [...prev, caption]);
+      setCaptions((prev) => {
+        const i = prev.findIndex((c) => c.id === caption.id);
+        if (i === -1) return [...prev, caption];
+        const next = [...prev];
+        next[i] = caption;
+        return next;
+      });
     });
 
     // Arrives a moment after the caption, only if I'm listening in English.
@@ -263,7 +271,11 @@ export default function MeetingRoom() {
     // Imported here, not at the top of the file: it needs browser-only APIs,
     // and Next.js also renders this page once on the server.
     const { MicVAD } = await import('@ricky0123/vad-web');
-    const segmenter = new Segmenter(16000, (wavBlob, endedAt) => uploadPhrase(wavBlob, endedAt));
+    const segmenter = new Segmenter(16000, {
+      onPhrase: (wavBlob, id, tentative, endedAt) => uploadPhrase(wavBlob, id, tentative, endedAt),
+      onConfirm: (id) => socketRef.current?.emit('phrase-confirm', { id }),
+      onCancel: (id) => socketRef.current?.emit('phrase-cancel', { id }),
+    });
 
     await MicVAD.new({
       model: 'v5',
@@ -285,10 +297,10 @@ export default function MeetingRoom() {
     });
   }
 
-  async function uploadPhrase(wavBlob: Blob, endedAt: number) {
+  async function uploadPhrase(wavBlob: Blob, phraseId: string, tentative: boolean, endedAt: number) {
     try {
-      const result = await api.sendUtterance(code, myParticipantIdRef.current, wavBlob);
-      if (!result.empty) {
+      const result = await api.sendUtterance(code, myParticipantIdRef.current, wavBlob, phraseId, tentative);
+      if (!result.empty && !result.cancelled) {
         const seconds = ((Date.now() - endedAt) / 1000).toFixed(1);
         setStatus(`Last phrase delivered ${seconds}s after you stopped speaking.`);
       }
@@ -511,11 +523,17 @@ export default function MeetingRoom() {
             // What was said, in English letters when we have that
             // ("aaj ki meeting mein kya hua") rather than Hindi/Telugu script.
             const said = c.romanized || c.original;
+            // English is on its way (it streams in word by word): show "..."
+            // until the first words arrive, with what was said underneath.
+            const englishComing = !c.final && lang === TARGET_LANG && c.lang !== TARGET_LANG;
             return (
-              <div key={i} className="flex flex-wrap gap-x-2 py-1">
+              <div key={c.id ?? i} className="flex flex-wrap gap-x-2 py-1">
                 <b className="text-brand">{mine ? 'You' : c.name}</b>
-                <span>{translated || said}</span>
-                {translated && (
+                <span>
+                  {translated || (englishComing ? '' : said)}
+                  {!c.final && <span className="text-muted"> ...</span>}
+                </span>
+                {(translated || englishComing) && (
                   <small className="basis-full text-muted">
                     {languages[c.lang] ?? c.lang}: {said}
                   </small>

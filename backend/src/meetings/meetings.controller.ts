@@ -12,8 +12,10 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { randomUUID } from 'node:crypto';
 import { MeetingsService } from './meetings.service';
 import { PresenceService } from './presence.service';
+import { PhraseGate } from './phrase-gate.service';
 import { MeetingsGateway } from './meetings.gateway';
 import { FishService } from '../fish/fish.service';
 import { AsrService } from '../asr/asr.service';
@@ -30,6 +32,7 @@ export class MeetingsController {
   constructor(
     private meetings: MeetingsService,
     private presence: PresenceService,
+    private phrases: PhraseGate,
     private gateway: MeetingsGateway,
     private fish: FishService,
     private asr: AsrService,
@@ -55,18 +58,25 @@ export class MeetingsController {
 
   // The browser sends one spoken phrase (a WAV file) whenever the speaker
   // pauses. We turn it into text, translate it into English if the speaker
-  // used an Indian language and someone is listening in English, push that to
-  // everyone as a caption, then send the spoken English version to the
-  // English listeners. Note: express.raw() puts the WAV bytes straight into
-  // req.body as a Buffer for this route -- see MeetingsModule.configure().
+  // used an Indian language and someone is listening in English, and push
+  // that to everyone as a caption -- word by word as the translation streams
+  // in -- then send the spoken English version to the English listeners.
+  //
+  // `phraseId` + `tentative`: the browser sends audio early, after only a
+  // short pause, before it's sure the sentence is over (see PhraseGate).
+  // Work starts at once, but nothing is shown until the browser confirms.
+  //
+  // Note: express.raw() puts the WAV bytes straight into req.body as a
+  // Buffer for this route -- see MeetingsModule.configure().
   @Post(':code/utterance')
   async utterance(
     @Param('code') code: string,
     @Query('participantId') participantIdRaw: string,
+    @Query('phraseId') phraseIdRaw: string | undefined,
+    @Query('tentative') tentative: string | undefined,
     @Req() req: Request,
   ) {
     const startedAt = Date.now();
-    const meeting = await this.meetings.findByCode(code);
     const participantId = Number(participantIdRaw);
     const speaker = this.presence
       .list(code)
@@ -77,27 +87,73 @@ export class MeetingsController {
     if (!Buffer.isBuffer(body) || body.length === 0)
       throw new BadRequestException('Send a WAV file');
 
-    let original: string;
-    const translations: Record<string, string> = {};
-    let romanized = ''; // the original in English letters, e.g. "aaj ki meeting"
+    // Scoped to the meeting so one meeting can't confirm another's phrases.
+    const phraseId = `${code}:${phraseIdRaw || randomUUID()}`;
+    if (tentative !== '1') this.phrases.confirm(phraseId);
+
+    const caption = {
+      id: phraseId,
+      from: speaker.socketId,
+      name: speaker.name,
+      lang: speaker.lang,
+      original: '',
+      romanized: '', // the original in English letters, e.g. "aaj ki meeting"
+      translations: {} as Record<string, string>,
+      final: false, // false while the English is still streaming in
+      serverMs: 0,
+      mock: MOCK,
+    };
+    let firstWordsMs = 0;
+    // Sends the caption as it stands right now -- but only once the phrase
+    // is confirmed. Before that, the latest state is just kept, and goes out
+    // the moment the confirm arrives.
+    const publish = () => {
+      if (!this.phrases.isConfirmed(phraseId)) return;
+      caption.serverMs = Date.now() - startedAt;
+      if (!firstWordsMs && caption.translations[TARGET_LANG])
+        firstWordsMs = caption.serverMs;
+      this.gateway.broadcastCaption(code, caption);
+    };
+    void this.phrases.decided(phraseId).then((ok) => {
+      if (ok && caption.original) publish();
+    });
+
     try {
       // Each language goes to the recognizer that's actually good at it:
       // Fish for English, the local IndicConformer service for Indian
       // languages (Fish returned gibberish for Telugu/Tamil/Kannada).
-      if (MOCK) original = await this.mock.transcribe();
+      if (MOCK) caption.original = await this.mock.transcribe();
       else if (speaker.lang === TARGET_LANG)
-        original = await this.fish.transcribe(body, speaker.lang);
-      else original = await this.asr.transcribe(body, speaker.lang);
-      if (!original) return { empty: true }; // background noise, no words
+        caption.original = await this.fish.transcribe(body, speaker.lang);
+      else caption.original = await this.asr.transcribe(body, speaker.lang);
+      if (!caption.original || this.phrases.isCancelled(phraseId)) {
+        this.phrases.forget(phraseId);
+        return caption.original ? { cancelled: true } : { empty: true }; // empty = just noise
+      }
 
       if (needsTranslation(speaker.lang, this.presence.languagesInUse(code))) {
+        const onEnglish = (englishSoFar: string) => {
+          caption.translations[TARGET_LANG] = englishSoFar;
+          publish();
+        };
+        const signal = this.phrases.signal(phraseId);
         const result = MOCK
-          ? await this.mock.translate(original)
-          : await this.translate.translate(original, speaker.lang);
-        translations[TARGET_LANG] = result.english;
-        romanized = result.romanized;
+          ? await this.mock.translate(caption.original, onEnglish, signal)
+          : await this.translate.translate(
+              caption.original,
+              speaker.lang,
+              onEnglish,
+              signal,
+            );
+        caption.translations[TARGET_LANG] = result.english;
+        caption.romanized = result.romanized;
       }
     } catch (err) {
+      if (this.phrases.isCancelled(phraseId)) {
+        this.phrases.forget(phraseId); // stopped on purpose, not a failure
+        return { cancelled: true };
+      }
+      this.phrases.forget(phraseId);
       // Fish/DeepSeek errors (bad key, no credit, rate limit) would otherwise
       // surface as an opaque 500 -- this puts the real reason in the response.
       throw new BadGatewayException(
@@ -105,25 +161,25 @@ export class MeetingsController {
       );
     }
 
-    // 1. The text goes out the moment it exists. It used to wait for the
-    //    spoken version to be synthesized too, which made captions slower.
-    const serverMs = Date.now() - startedAt;
-    this.gateway.broadcastCaption(code, {
-      from: speaker.socketId,
-      name: speaker.name,
-      lang: speaker.lang,
-      original,
-      romanized,
-      translations,
-      serverMs,
-      mock: MOCK,
-    });
-    this.logger.log(`[${code}] ${speaker.name}: "${original}" (${serverMs}ms)`);
+    // Finished early? Wait for the browser to say the sentence really ended.
+    const confirmed = await this.phrases.decided(phraseId);
+    if (!confirmed) {
+      this.phrases.forget(phraseId);
+      return { cancelled: true };
+    }
 
-    // 2. Then the spoken translation, pushed straight to the listeners who
-    //    need it -- their browser plays it without having to ask for it
-    //    (which used to cost a whole extra round trip after the caption).
-    const translated = translations[TARGET_LANG];
+    caption.final = true;
+    publish();
+    this.phrases.forget(phraseId); // only after the last publish, which checks it
+    const translated = caption.translations[TARGET_LANG];
+    this.logger.log(
+      `[${code}] ${speaker.name}: "${caption.original}" (` +
+        (firstWordsMs ? `first words ${firstWordsMs}ms, ` : '') +
+        `done ${caption.serverMs}ms)`,
+    );
+
+    // The spoken translation, pushed straight to the listeners who need it
+    // -- their browser plays it without having to ask for it.
     if (translated && !MOCK) {
       this.fish
         .speak(translated)
@@ -133,8 +189,7 @@ export class MeetingsController {
             from: speaker.socketId,
             audio: Buffer.from(audio).toString('base64'),
           });
-          // Same clock as serverMs above: from receiving the WAV to sending
-          // the English voice, so the two numbers can be compared.
+          // Same clock as the caption times above, so they can be compared.
           this.logger.log(`[${code}] voice sent (${Date.now() - startedAt}ms)`);
         })
         .catch((err: unknown) =>
@@ -144,15 +199,18 @@ export class MeetingsController {
         );
     }
 
-    // 3. Saving the transcript doesn't need to hold anything up either.
+    // Saving the transcript doesn't need to hold anything up either.
     this.meetings
-      .saveUtterance(
-        meeting.id,
-        participantId,
-        speaker.lang,
-        original,
-        romanized,
-        translations,
+      .findByCode(code)
+      .then((meeting) =>
+        this.meetings.saveUtterance(
+          meeting.id,
+          participantId,
+          speaker.lang,
+          caption.original,
+          caption.romanized,
+          caption.translations,
+        ),
       )
       .catch((err: unknown) =>
         this.logger.error(
@@ -160,6 +218,6 @@ export class MeetingsController {
         ),
       );
 
-    return { serverMs };
+    return { serverMs: caption.serverMs };
   }
 }

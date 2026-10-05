@@ -4,7 +4,11 @@
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { IncomingMessage } from 'node:http';
-import { TranslateService, parseTranslation } from './translate.service';
+import {
+  TranslateService,
+  englishSoFar,
+  parseTranslation,
+} from './translate.service';
 
 async function withFakeClaude(
   handler: http.RequestListener,
@@ -25,17 +29,43 @@ async function withFakeClaude(
   }
 }
 
-// A minimal, realistically-shaped success response from the Messages API.
-function claudeReply(text: string): string {
-  return JSON.stringify({
-    id: 'msg_test',
-    type: 'message',
-    role: 'assistant',
-    model: 'claude-haiku-4-5-20251001',
-    content: [{ type: 'text', text }],
-    stop_reason: 'end_turn',
-    usage: { input_tokens: 10, output_tokens: 5 },
-  });
+// A minimal, realistically-shaped *streamed* reply from the Messages API
+// (server-sent events), with the text split into the given pieces the way
+// it really arrives a few characters at a time.
+function streamedReply(pieces: string[]): string {
+  const event = (type: string, data: object) =>
+    `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
+  return (
+    event('message_start', {
+      message: {
+        id: 'msg_test',
+        type: 'message',
+        role: 'assistant',
+        model: 'deepseek-flash',
+        content: [],
+        stop_reason: null,
+        usage: { input_tokens: 10, output_tokens: 0 },
+      },
+    }) +
+    event('content_block_start', {
+      index: 0,
+      content_block: { type: 'text', text: '' },
+    }) +
+    pieces
+      .map((text) =>
+        event('content_block_delta', {
+          index: 0,
+          delta: { type: 'text_delta', text },
+        }),
+      )
+      .join('') +
+    event('content_block_stop', { index: 0 }) +
+    event('message_delta', {
+      delta: { stop_reason: 'end_turn' },
+      usage: { output_tokens: 5 },
+    }) +
+    event('message_stop', {})
+  );
 }
 
 function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -47,7 +77,7 @@ function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 describe('TranslateService', () => {
-  it('sends the transcript and language, and returns english + romanized', async () => {
+  it('sends the transcript and language, streams the English, and returns english + romanized', async () => {
     const translate = new TranslateService();
     let received: {
       method?: string;
@@ -63,18 +93,27 @@ describe('TranslateService', () => {
           apiKey: req.headers['x-api-key'] as string,
           body: await readBody(req),
         };
-        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Type', 'text/event-stream');
         res.end(
-          claudeReply(
-            '{"english": "What happened in today\'s meeting?", "romanized": "aaj ki meeting mein kya hua"}',
-          ),
+          streamedReply([
+            '{"english": "What happened',
+            ' in today\'s meeting?", ',
+            '"romanized": "aaj ki meeting mein kya hua"}',
+          ]),
         );
       },
       async () => {
+        const seen: string[] = [];
         const result = await translate.translate(
           'आज की मीटिंग में क्या हुआ',
           'hi',
+          (englishSoFar) => seen.push(englishSoFar),
         );
+        // The caption got the English as it arrived, not just at the end.
+        expect(seen).toEqual([
+          'What happened',
+          "What happened in today's meeting?",
+        ]);
         expect(result).toEqual({
           english: "What happened in today's meeting?",
           romanized: 'aaj ki meeting mein kya hua',
@@ -132,5 +171,27 @@ describe('parseTranslation', () => {
       english: 'Just some text',
       romanized: '',
     });
+  });
+});
+
+describe('englishSoFar', () => {
+  it('is empty until the English has started', () => {
+    expect(englishSoFar('{"eng')).toBe('');
+    expect(englishSoFar('{"english": ')).toBe('');
+  });
+
+  it('reads the English while the JSON is still incomplete', () => {
+    expect(englishSoFar('{"english": "How are yo')).toBe('How are yo');
+  });
+
+  it('stops at the end of the English and ignores what follows', () => {
+    expect(englishSoFar('{"english": "Hi.", "romanized": "nam')).toBe('Hi.');
+  });
+
+  it('handles escaped quotes, and waits on an escape cut off mid-way', () => {
+    expect(englishSoFar('{"english": "He said \\"yes\\"')).toBe(
+      'He said "yes"',
+    );
+    expect(englishSoFar('{"english": "It\\')).toBe('It');
   });
 });

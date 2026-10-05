@@ -17,7 +17,11 @@ export interface PublicPeer {
 
 // One translated caption, broadcast over the WebSocket after a phrase has
 // been transcribed and translated.
+// Sent several times per phrase with the same `id`: the English fills in
+// word by word as the translation streams, then once more with `final`.
 export interface Caption {
+  id: string;
+  final: boolean;
   from: string; // speaker's socketId
   name: string;
   lang: string;

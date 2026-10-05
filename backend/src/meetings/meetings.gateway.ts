@@ -12,6 +12,7 @@ import { LANGUAGES } from '../languages';
 import { MOCK } from '../mock-flag';
 import { MeetingsService } from './meetings.service';
 import { PresenceService } from './presence.service';
+import { PhraseGate } from './phrase-gate.service';
 
 // Video and audio go straight between browsers (WebRTC). Before they can,
 // the browsers must swap connection details, and this gateway is the
@@ -56,6 +57,7 @@ export class MeetingsGateway implements OnGatewayDisconnect {
   constructor(
     private meetings: MeetingsService,
     private presence: PresenceService,
+    private phrases: PhraseGate,
   ) {}
 
   @SubscribeMessage('join')
@@ -146,6 +148,29 @@ export class MeetingsGateway implements OnGatewayDisconnect {
       this.server
         .to(code)
         .emit('peer-updated', { peer: this.presence.toPublic(peer) });
+  }
+
+  // The speaker's browser deciding about a phrase it sent early (after a
+  // short pause): the silence lasted, so it's a real sentence end
+  // ("phrase-confirm"), or they kept talking ("phrase-cancel"). See PhraseGate.
+  @SubscribeMessage('phrase-confirm')
+  handlePhraseConfirm(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { id: string },
+  ): void {
+    const code = socketData(client).code;
+    if (code && typeof body?.id === 'string')
+      this.phrases.confirm(`${code}:${body.id}`);
+  }
+
+  @SubscribeMessage('phrase-cancel')
+  handlePhraseCancel(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { id: string },
+  ): void {
+    const code = socketData(client).code;
+    if (code && typeof body?.id === 'string')
+      this.phrases.cancel(`${code}:${body.id}`);
   }
 
   handleDisconnect(client: Socket): void {

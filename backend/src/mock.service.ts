@@ -32,11 +32,20 @@ export class MockService {
     return line;
   }
 
-  async translate(text: string): Promise<Translation> {
+  // Streams the fake English a word at a time, like the real translator.
+  async translate(
+    text: string,
+    onEnglish: (englishSoFar: string) => void = () => {},
+    signal?: AbortSignal,
+  ): Promise<Translation> {
+    const english = `[en demo] ${text}`;
+    const words = english.split(' ');
     await this.delay(150 + Math.random() * 150);
-    return {
-      english: `[en demo] ${text}`,
-      romanized: `[romanized demo] ${text}`,
-    };
+    for (let i = 1; i <= words.length; i++) {
+      if (signal?.aborted) throw new Error('cancelled');
+      onEnglish(words.slice(0, i).join(' '));
+      await this.delay(30);
+    }
+    return { english, romanized: `[romanized demo] ${text}` };
   }
 }

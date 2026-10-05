@@ -48,12 +48,17 @@ export const api = {
 
   // The mic-captured phrase is a WAV file, not JSON, so this bypasses
   // request() and posts the raw bytes with their own content type.
+  // `tentative`: sent early, before the browser is sure the sentence ended
+  // -- confirmed or cancelled later over the WebSocket (see segmenter.ts).
   sendUtterance: async (
     code: string,
     participantId: number,
     wavBlob: Blob,
-  ): Promise<{ serverMs?: number; empty?: boolean }> => {
-    const res = await fetch(`${API_URL}/meetings/${code}/utterance?participantId=${participantId}`, {
+    phraseId: string,
+    tentative: boolean,
+  ): Promise<{ serverMs?: number; empty?: boolean; cancelled?: boolean }> => {
+    const query = `participantId=${participantId}&phraseId=${phraseId}&tentative=${tentative ? 1 : 0}`;
+    const res = await fetch(`${API_URL}/meetings/${code}/utterance?${query}`, {
       method: 'POST',
       headers: { 'Content-Type': 'audio/wav' },
       body: wavBlob,

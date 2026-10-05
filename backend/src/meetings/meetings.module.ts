@@ -9,10 +9,11 @@ import { MeetingsController } from './meetings.controller';
 import { MeetingsService } from './meetings.service';
 import { MeetingsGateway } from './meetings.gateway';
 import { PresenceService } from './presence.service';
+import { PhraseGate } from './phrase-gate.service';
 
 @Module({
   controllers: [MeetingsController],
-  providers: [MeetingsService, MeetingsGateway, PresenceService],
+  providers: [MeetingsService, MeetingsGateway, PresenceService, PhraseGate],
 })
 export class MeetingsModule implements NestModule {
   // The utterance route receives a raw WAV file, not JSON, so it needs its
