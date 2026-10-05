@@ -14,6 +14,79 @@ instead of in the native script:
 So an English listener who half-knows the language can follow the original
 too.
 
+## At a glance
+
+### Delay
+- **Real two-person call** (two devices, different networks, 75
+  sentences): **0.79s median** from the server receiving a sentence to
+  sending its English caption, and under **1.5s for 90%** of sentences.
+- **What the listener experiences** (typical, partly estimated): the
+  caption about **1.6s** after the speaker pauses, the English voice about
+  **2.5s** after.
+- **Target: under 4s.** Met.
+
+### Stack
+- **Frontend:** Next.js, React, TypeScript, Tailwind; WebRTC for video,
+  Socket.IO, Silero VAD for voice detection in the browser.
+- **Backend:** NestJS, Socket.IO, Prisma, PostgreSQL.
+- **Speech-to-text:** Python (FastAPI) running AI4Bharat's IndicConformer
+  locally for Hindi/Telugu/Tamil/Kannada; Fish Audio for English.
+- **Translation:** DeepSeek (`deepseek-flash`).
+- **English voice:** Fish Audio.
+
+### Problems faced, and how they were fixed
+1. **Fish turned Telugu, Tamil and Kannada into Malay gibberish** and took
+   4–6s → switched to a local IndicConformer model: correct, ~0.2s, free.
+2. **The GPU was slower than the CPU** for that model (450ms vs 190ms) →
+   CPU with tuned thread settings.
+3. **Hugging Face was blocked over IPv6** on the internet provider → the
+   model download is forced over IPv4.
+4. **Noise and the English voice playback were picked up as speech** →
+   Silero VAD instead of a loudness check, and the mic is ignored while the
+   voice plays.
+5. **A different voice every sentence, plus lag** → one pinned voice,
+   DeepSeek's "thinking" step turned off, caption sent before the voice.
+6. **Chinese characters in translations, and a cough captioned as "啊"** →
+   a stricter English-only instruction and a filter.
+7. **A faster translator (IndicTrans2) was less accurate** → accuracy was
+   chosen and DeepSeek kept.
+8. **On the real call, most mistakes came from people on the wrong
+   language** → clearer labels and a hint line saying what your choice
+   means right now.
+9. **Long sentences were cut mid-word** → cut at the next natural pause.
+
+More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
+
+### Limitations
+- Translates **only into English**.
+- **Speakers pick their language manually**; a wrong choice gives
+  gibberish.
+- **No login, meeting password or usage limits**, so anyone with the link
+  can spend API credit.
+- **Not deployed**: runs on a laptop; live demos go through a free
+  Cloudflare tunnel.
+- **About 6 people per meeting**: everyone connects to everyone.
+- **No TURN server**: video may fail on strict networks (captions and voice
+  still work).
+- **Depends on paid services**: DeepSeek and Fish Audio.
+- **Tamil and Kannada** were tested only with generated audio, not a real
+  speaker.
+
+### Pros
+- **Solves a real Indian problem** at ~1.5–2.5s, well under the 4s target.
+- **Accurate for Indian languages**: a model built for them, plus a
+  translator that repairs misheard words.
+- **English letters under each caption** ("aaj ki meeting mein kya hua")
+  so listeners can follow the original words too.
+- **Cheap**: speech-to-text is local and free; translation and voice cost a
+  fraction of a rupee per sentence.
+- **Private, fast video**: it goes straight between browsers, never through
+  the server.
+- **Tested with real people**, with measured numbers and every decision
+  written down.
+- **Well documented and tested**: system design, decisions, a health
+  check endpoint, 32 backend tests.
+
 ## In the meeting
 
 - **Pick the language you will speak.** English means "I want to hear
