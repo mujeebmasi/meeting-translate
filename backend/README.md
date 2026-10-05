@@ -27,25 +27,30 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
   translations) tables.
 - **`MeetingsController`** (`src/meetings/meetings.controller.ts`) has the
   actual translation pipeline. The browser uploads one WAV file per spoken
-  phrase (see the frontend's `segmenter.ts` for why), which gets:
+  phrase (see the frontend's `segmenter.ts` for why) -- early, after a 0.2s
+  pause, marked tentative. Work starts at once, but nothing is shown until
+  the browser confirms the pause reached 0.5s (or it's cancelled because
+  the speaker carried on); **`PhraseGate`** (`src/meetings/phrase-gate.service.ts`)
+  tracks that. Each phrase gets:
   1. turned into text -- by the local **IndicConformer** service
      (`../asr`, called from `src/asr/`) for Hindi/Telugu/Tamil/Kannada, or
      **Fish Audio** (`src/fish/`) for English. Fish was tried for the Indian
      languages first and returned gibberish for Telugu, Tamil and Kannada.
   2. translated into English (only ever that direction -- see
-     `needsTranslation()` in `src/languages.ts`) by **DeepSeek**
-     (`src/translate/`), via DeepSeek's Anthropic-compatible endpoint --
-     hence still using `@anthropic-ai/sdk` as the client, just given a
-     `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL` explicitly rather than the
-     SDK's own default `ANTHROPIC_*` env vars. Swap to real Anthropic by
-     changing those two lines in `translate.service.ts`'s `client()` back
-     to `new Anthropic()` (reads `ANTHROPIC_API_KEY` itself) and `MODEL` to
-     a `claude-*` name.
+     `needsTranslation()` in `src/languages.ts`) in `src/translate/` by
+     **Qwen on Groq** (first words in ~0.13s; `GROQ_API_KEY`), falling back
+     to **DeepSeek** automatically when Groq fails, is out of its free
+     quota, or has no key. DeepSeek is called through `@anthropic-ai/sdk`
+     because its API accepts Claude's request shape; its env vars are
+     named `DEEPSEEK_*` so the key's name says what it is.
      The same call also returns the original in English letters
-     ("aaj ki meeting mein kya hua"): DeepSeek replies with JSON
-     `{"english", "romanized"}`, read by `parseTranslation()`, which falls
-     back to treating the whole reply as the English text if it isn't JSON.
-  3. broadcast to everyone as a caption right away, then spoken in English
+     ("aaj ki meeting mein kya hua") as JSON `{"english", "romanized"}`.
+     The reply is streamed: `englishSoFar()` reads the English out of the
+     half-finished JSON, so the caption fills in word by word, and
+     `parseTranslation()` reads the finished reply (falling back to the
+     whole reply as English if it isn't JSON).
+  3. broadcast to everyone as a caption, again each time more English
+     arrives, then spoken in English
      by **Fish Audio text-to-speech** and pushed (as a separate `voice`
      socket event) only to the English listeners. Saved to Postgres last,
      without holding anything up.

@@ -44,13 +44,18 @@ so the browser can't just pipe raw microphone audio to the server. Instead:
    ~32ms of microphone audio for speech. While the translated voice is
    playing, the mic is treated as silent so it isn't picked up again.
 2. `src/lib/segmenter.ts` watches those blocks and decides when a spoken
-   phrase has ended (a pause, or a run-on sentence past ~4 seconds), then
-   hands back one WAV file.
+   phrase has ended (a 0.5s pause, or a run-on sentence past ~4 seconds),
+   then hands back one WAV file. To save time it sends the audio early,
+   after only 0.2s of pause, marked tentative, then confirms it if the
+   pause reaches 0.5s or cancels it if the speaker carries on (the
+   `phrase-confirm` / `phrase-cancel` socket messages).
 3. That WAV is uploaded to the backend (`src/lib/api.ts`'s `sendUtterance`),
    which turns it into text, translates it, and broadcasts the result over
-   the same Socket.IO connection as a `caption` event. The caption shows
-   the English text, with the speaker's own words underneath in English
-   letters (`romanized`, e.g. "Hindi: aaj ki meeting mein kya hua").
+   the same Socket.IO connection as `caption` events -- the same caption
+   (same `id`) several times as the English streams in, which the page
+   updates in place, showing "..." until it's `final`. Underneath is the
+   speaker's own words in English letters (`romanized`, e.g. "Hindi: aaj
+   ki meeting mein kya hua").
 
 ## Setup
 

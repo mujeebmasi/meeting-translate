@@ -17,13 +17,12 @@ too.
 ## At a glance
 
 ### Delay
-- **Real two-person call** (two devices, different networks, 75
-  sentences): **0.79s median** from the server receiving a sentence to
-  sending its English caption, and under **1.5s for 90%** of sentences.
-- **What the listener experiences** (typical, partly estimated): the
-  caption about **1.6s** after the speaker pauses, the English voice about
-  **2.5s** after.
-- **Target: under 4s.** Met.
+- **First English words on the listener's screen: 0.52–0.69s** after the
+  speaker stops; the finished caption at 0.58–0.76s; the English voice at
+  ~1.7–1.9s. Measured end to end through two browser tabs with real speech
+  recognition and translation (Hindi and Telugu).
+- **Original target: under 4s.** Then pushed to under 0.7s for the first
+  words, and met. How: [Getting under 0.7s](#getting-under-07s).
 
 ### Stack
 - **Frontend:** Next.js, React, TypeScript, Tailwind; WebRTC for video,
@@ -31,7 +30,8 @@ too.
 - **Backend:** NestJS, Socket.IO, Prisma, PostgreSQL.
 - **Speech-to-text:** Python (FastAPI) running AI4Bharat's IndicConformer
   locally for Hindi/Telugu/Tamil/Kannada; Fish Audio for English.
-- **Translation:** DeepSeek (`deepseek-flash`).
+- **Translation:** Qwen (`qwen3.8-27b`) on Groq, with DeepSeek
+  (`deepseek-flash`) as automatic backup.
 - **English voice:** Fish Audio.
 
 ### Problems faced, and how they were fixed
@@ -54,6 +54,9 @@ too.
    language** → clearer labels and a hint line saying what your choice
    means right now.
 9. **Long sentences were cut mid-word** → cut at the next natural pause.
+10. **Captions took 1.1–1.6s** → streamed word by word, started early,
+    a 250ms Windows `localhost` delay removed, and Groq as the translator:
+    now 0.52–0.69s.
 
 More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 
@@ -68,12 +71,15 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 - **About 6 people per meeting**: everyone connects to everyone.
 - **No TURN server**: video may fail on strict networks (captions and voice
   still work).
-- **Depends on paid services**: DeepSeek and Fish Audio.
+- **Depends on external services**: Groq (free tier: ~20 sentences a
+  minute, 1,000 a day; past that it falls back to DeepSeek at ~1.2s), DeepSeek
+  and Fish Audio.
 - **Tamil and Kannada** were tested only with generated audio, not a real
   speaker.
 
 ### Pros
-- **Solves a real Indian problem** at ~1.5–2.5s, well under the 4s target.
+- **Solves a real Indian problem** with the first English words on screen
+  in under 0.7s, and the English voice in under 2s.
 - **Accurate for Indian languages**: a model built for them, plus a
   translator that repairs misheard words.
 - **English letters under each caption** ("aaj ki meeting mein kya hua")
@@ -104,21 +110,37 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 
 ## Measured
 
-On a real Fish-voiced sentence per language, through the whole app (speech →
-text → English → spoken English), on a laptop CPU:
+Recorded sentences played into one browser tab's microphone, with the
+caption timed in a second tab listening in English. Real speech recognition
+and translation, on a laptop. Times are from when the speaker stops talking.
 
-| | Caption on screen | English voice heard |
-|---|---|---|
-| Hindi / Telugu / Tamil / Kannada | 1.3–1.6s | 2.3–2.7s |
+| | First English words | Finished caption | English voice |
+|---|---|---|---|
+| Hindi (3 runs) | 0.67–0.69s | 0.74–0.76s | ~1.7–1.9s |
+| Telugu | 0.52s | 0.58s | ~1.7s |
 
-Target was under 4s. Times are counted from when the speaker pauses.
+| Version | First caption words |
+|---|---|
+| First version (whole caption at once, DeepSeek) | ~1.6s (estimated) |
+| + streaming, early start, `localhost` fix | 1.1–1.3s |
+| + Groq instead of DeepSeek | **0.52–0.69s** |
 
 **Real two-person call** (two people, two devices, different networks,
-Hindi speaker → English listener and back): server time from receiving a
-sentence to sending its caption was **0.79s median, 1.5s for 90% of
-sentences**, over 75 sentences. Most mistakes in that call came from someone
+Hindi speaker → English listener and back, before the speed-ups above):
+server time from receiving a sentence to sending its caption was **0.79s
+median, 1.5s for 90% of sentences**, over 75 sentences. Most mistakes in that call came from someone
 being on the wrong language, which is what the hint line above now
 addresses.
+
+## Getting under 0.7s
+
+| Step | Before | Now |
+|---|---|---|
+| Noticing the speaker stopped | waits 0.5s | starts at 0.2s, confirms at 0.5s |
+| Reaching speech-to-text | +~0.25s (Windows `localhost` tries IPv6 first) | 127.0.0.1, no delay |
+| Speech-to-text | ~0.15s | ~0.15s |
+| Translation's first words | ~0.6s (DeepSeek), whole caption at the end | ~0.13s (Groq), caption fills in word by word |
+| **First English words on screen** | **~1.6s** | **0.52–0.69s** |
 
 ## Three parts
 
@@ -138,7 +160,7 @@ on the CPU (~0.2s per phrase), so it costs nothing per use.
 | Is the mic audio speech? | **Silero VAD** (in the browser) | A loudness check let clicks, noise and the translated voice through as "speech" |
 | Speech → text (Indian languages) | **IndicConformer** (local) | Fish returned gibberish for Telugu/Tamil/Kannada and took 4–6s; this got them right in ~0.2s |
 | Speech → text (English) | **Fish Audio** | Accurate for English |
-| Text → English, plus the original in English letters | **DeepSeek** (`deepseek-flash`, thinking off) | ~0.5–1s, free token grant on signup. Kept over a faster local translator (IndicTrans2) for accuracy. Both come back from one call as JSON `{english, romanized}`, so the English-letters line adds no delay. A rule-based transliterator was the other option, but it spells stiffly (`Aja kI mITiMga`) |
+| Text → English, plus the original in English letters | **Qwen on Groq** (`qwen3.8-27b`, thinking off), **DeepSeek** as backup | Groq's first words in ~0.13s vs DeepSeek's ~0.6s, equal accuracy on 12 of 14 real transcripts; DeepSeek takes over when Groq's free quota runs out. Both lines come back from one call as JSON `{english, romanized}`, streamed, so the English-letters line adds no delay. A rule-based transliterator spells stiffly (`Aja kI mITiMga`) |
 | English text → voice | **Fish Audio** | Consistent voice (`FISH_VOICE_ID`) |
 
 ## System design
@@ -149,7 +171,7 @@ flowchart LR
     S -->|"one WAV per sentence"| B["Backend (NestJS)<br/>signalling + translation"]
     B -->|"caption + English voice<br/>(Socket.IO)"| L
     B --> A["Speech-to-text (Python)<br/>IndicConformer, local"]
-    B --> D["DeepSeek<br/>translation"]
+    B --> D["Groq (Qwen)<br/>translation<br/>DeepSeek as backup"]
     B --> F["Fish Audio<br/>English STT + voice"]
     B --> P[("PostgreSQL<br/>meetings, sentences")]
 ```
@@ -160,25 +182,27 @@ passes along the connection details (signalling). Translation is the other
 path: one WAV per sentence goes to the backend, and the caption and English
 voice come back over the same Socket.IO connection.
 
-**One sentence, end to end** (typical timings; the server step was measured
-on the real call, the rest are estimates):
+**One sentence, end to end** (measured; times from when the speaker stops):
 
 ```mermaid
 sequenceDiagram
     participant S as Speaker's browser
     participant B as Backend
     participant A as Speech-to-text
-    participant D as DeepSeek
+    participant G as Groq (Qwen)
     participant F as Fish Audio
     participant L as Listener's browser
-    Note over S: waits for a 0.5s pause
-    S->>B: WAV of the sentence (~0.2s upload)
-    B->>A: transcribe (~0.2s)
-    B->>D: translate + English letters (~0.6s)
-    B->>L: caption (on screen at ~1.6s)
+    Note over S: 0.2s pause: sends early, "tentative"
+    S->>B: WAV of the sentence
+    B->>A: transcribe (~0.15s)
+    B->>G: translate + English letters (streamed)
+    Note over S: pause reaches 0.5s
+    S->>B: confirm (or cancel, if they kept talking)
+    G-->>B: first English words (~0.13s)
+    B->>L: caption fills in word by word (first words at ~0.6s)
     B->>F: English text to speech
     F-->>B: mp3
-    B->>L: English voice (heard at ~2.5s)
+    B->>L: English voice (~1.8s)
     Note over B: sentence saved to Postgres last
 ```
 
@@ -188,7 +212,10 @@ sequenceDiagram
 - The voice is pushed only to English listeners, with no extra request.
 - Saving to Postgres happens after the caption, so it never adds delay.
 - Nothing is translated unless someone is listening in English.
-- The translation and the English-letters line come from one DeepSeek call.
+- The translation and the English-letters line come from one call,
+  streamed, so the caption fills in word by word.
+- Work starts after a 0.2s pause; if the speaker carries on it's cancelled,
+  so where sentences end (and translation quality) doesn't change.
 
 **Live state vs. history.** Who is in a meeting right now (connection,
 name, language) is kept in memory (`PresenceService`): signalling and the
@@ -214,7 +241,8 @@ letters, translation).
 | ~6 people per meeting | Everyone connects to everyone (6 people = 15 connections) | A media server (SFU, e.g. LiveKit): each person sends one stream |
 | Speech-to-text throughput | One CPU process, ~0.2s per sentence | More worker processes behind a queue; a GPU with batching at higher volume |
 | One backend server | Who is online lives in one server's memory | Move it to Redis, with Socket.IO's Redis adapter |
-| Translation is the slowest step | DeepSeek, 0.5–1.5s and paid per call | Streaming, caching repeated phrases, or a local translator once one is accurate enough |
+| Groq's free tier | ~20 sentences a minute, 1,000 a day; past that, DeepSeek at ~1.2s | A paid Groq plan, or a local translator on a GPU once one is accurate enough |
+| The English voice is the slowest part | Fish takes ~1s to generate a sentence | Play it while it's generated, or a local voice model on a GPU |
 | No login or usage limits | Anyone with the link can spend credit | Meeting passwords or login, plus per-meeting limits |
 | Video on strict networks | STUN only, no relay | A TURN server (coturn) |
 
@@ -276,7 +304,23 @@ was clearer labels and a line that says what your choice means right now,
 not more features. The same call caught Fish captioning a cough as "啊",
 which is now filtered out.
 
-**10. Not deployed, on purpose.** The speech model needs ~3–4 GB of memory,
+**10. Under 0.7s: streaming, starting early, and Groq.** Measured where
+the time went first. Translation was most of it: DeepSeek's first word took
+~0.6s (0.3–0.85s). So: the caption fills in word by word as the translation
+streams; work starts after a 0.2s pause instead of 0.5s (cancelled if the
+speaker carries on, so sentences still end in the same place); and Groq's
+Qwen, whose first word takes ~0.13s, replaced DeepSeek after matching it on
+12 of 14 real transcripts. A clearer "this word was probably misheard"
+instruction fixed its one serious miss. DeepSeek stayed as the backup for
+when Groq's free quota runs out. Measuring also found that Windows
+"localhost" quietly cost ~250ms per sentence (it tries IPv6 first), fixed
+by using 127.0.0.1.
+
+A fully streaming speech-to-speech model was ruled out: Hindi puts the verb
+(and "not") at the end of the sentence, so translating before the sentence
+ends means guessing the meaning.
+
+**11. Not deployed, on purpose.** The speech model needs ~3–4 GB of memory,
 which rules out free hosting, and a public link would let anyone spend the
 translation and voice credit. Live demos run from a laptop through a free
 Cloudflare tunnel instead.
@@ -293,7 +337,7 @@ Cloudflare tunnel instead.
    uv run python download_model.py
    uv run uvicorn main:app --port 5001
    ```
-2. **Backend** — see `backend/README.md` for `.env` (Postgres, Fish, DeepSeek):
+2. **Backend** — see `backend/README.md` for `.env` (Postgres, Fish, DeepSeek, and optionally Groq):
    ```bash
    cd backend
    npm install
