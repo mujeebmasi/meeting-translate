@@ -2,7 +2,8 @@
 
 Next.js UI for the [backend](../backend). A video call where Hindi, Telugu,
 Tamil and Kannada speakers are heard in English, as live captions and a
-translated voice, under 4 seconds after they stop talking.
+translated voice: the first English words on screen in about 0.5-0.7s
+after they stop talking, the voice playing in about 1.3-1.5s.
 
 ## Stack
 
@@ -56,6 +57,11 @@ so the browser can't just pipe raw microphone audio to the server. Instead:
    updates in place, showing "..." until it's `final`. Underneath is the
    speaker's own words in English letters (`romanized`, e.g. "Hindi: aaj
    ki meeting mein kya hua").
+4. English listeners then get the voice in pieces (`voice-chunk`, then
+   `voice-end`). `src/lib/voice-player.ts` starts playing on the first
+   piece, using MediaSource to play an MP3 that's still arriving, and
+   plays sentences one after another. Browsers without MP3 MediaSource
+   (older iPhones) play each sentence once all of it has arrived.
 
 ## Setup
 

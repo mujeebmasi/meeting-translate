@@ -51,9 +51,10 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
      whole reply as English if it isn't JSON).
   3. broadcast to everyone as a caption, again each time more English
      arrives, then spoken in English
-     by **Fish Audio text-to-speech** and pushed (as a separate `voice`
-     socket event) only to the English listeners. Saved to Postgres last,
-     without holding anything up.
+     by **Fish Audio text-to-speech**: each piece of audio is pushed to the
+     English listeners (`voice-chunk` socket events) the moment Fish sends
+     it, then `voice-end`, so their browser starts playing ~0.4s before the
+     whole file exists. Saved to Postgres last, without holding anything up.
 
 ## Setup
 

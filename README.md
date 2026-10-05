@@ -18,9 +18,10 @@ too.
 
 ### Delay
 - **First English words on the listener's screen: 0.52–0.69s** after the
-  speaker stops; the finished caption at 0.58–0.76s; the English voice at
-  ~1.7–1.9s. Measured end to end through two browser tabs with real speech
-  recognition and translation (Hindi and Telugu).
+  speaker stops (up to ~1s when Groq is having a slow moment); the finished
+  caption at 0.58–0.76s; **the English voice starts playing at 1.26–1.48s**.
+  Measured end to end through two browser tabs with real speech recognition,
+  translation and voice (Hindi and Telugu).
 - **Original target: under 4s.** Then pushed to under 0.7s for the first
   words, and met. How: [Getting under 0.7s](#getting-under-07s).
 
@@ -79,7 +80,7 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 
 ### Pros
 - **Solves a real Indian problem** with the first English words on screen
-  in under 0.7s, and the English voice in under 2s.
+  in under 0.7s, and the English voice playing in under 1.5s.
 - **Accurate for Indian languages**: a model built for them, plus a
   translator that repairs misheard words.
 - **English letters under each caption** ("aaj ki meeting mein kya hua")
@@ -114,16 +115,22 @@ Recorded sentences played into one browser tab's microphone, with the
 caption timed in a second tab listening in English. Real speech recognition
 and translation, on a laptop. Times are from when the speaker stops talking.
 
-| | First English words | Finished caption | English voice |
-|---|---|---|---|
-| Hindi (3 runs) | 0.67–0.69s | 0.74–0.76s | ~1.7–1.9s |
-| Telugu | 0.52s | 0.58s | ~1.7s |
+| | First English words | Finished caption |
+|---|---|---|
+| Hindi (3 runs) | 0.67–0.69s | 0.74–0.76s |
+| Telugu | 0.52s | 0.58s |
 
-| Version | First caption words |
+| English voice | Starts playing |
 |---|---|
-| First version (whole caption at once, DeepSeek) | ~1.6s (estimated) |
-| + streaming, early start, `localhost` fix | 1.1–1.3s |
-| + Groq instead of DeepSeek | **0.52–0.69s** |
+| Hindi (3 runs, voice played while still arriving) | **1.26–1.48s** |
+| Same runs, if it had waited for the whole file (as before) | ~1.65–1.9s |
+
+| Version | First caption words | English voice |
+|---|---|---|
+| First version (whole caption at once, DeepSeek) | ~1.6s (estimated) | ~2.2–2.7s |
+| + streaming, early start, `localhost` fix | 1.1–1.3s | |
+| + Groq instead of DeepSeek | **0.52–0.69s** | ~1.65–1.9s |
+| + voice played while it's still arriving | | **1.26–1.48s** |
 
 **Real two-person call** (two people, two devices, different networks,
 Hindi speaker → English listener and back, before the speed-ups above):
@@ -141,6 +148,8 @@ addresses.
 | Speech-to-text | ~0.15s | ~0.15s |
 | Translation's first words | ~0.6s (DeepSeek), whole caption at the end | ~0.13s (Groq), caption fills in word by word |
 | **First English words on screen** | **~1.6s** | **0.52–0.69s** |
+| English voice | waits for Fish's whole file (~1.1s) | plays from Fish's first piece (~0.35s) |
+| **English voice starts** | **~2.2–2.7s** | **1.26–1.48s** |
 
 ## Three parts
 
@@ -201,15 +210,17 @@ sequenceDiagram
     G-->>B: first English words (~0.13s)
     B->>L: caption fills in word by word (first words at ~0.6s)
     B->>F: English text to speech
-    F-->>B: mp3
-    B->>L: English voice (~1.8s)
+    F-->>B: mp3, piece by piece
+    B->>L: each piece as it arrives (voice starts at ~1.3–1.5s)
     Note over B: sentence saved to Postgres last
 ```
 
 **What keeps it fast**
 - The caption goes out the moment the translation exists; it doesn't wait
   for the voice.
-- The voice is pushed only to English listeners, with no extra request.
+- The voice is pushed only to English listeners, with no extra request,
+  and starts playing from its first piece while the rest is still being
+  generated.
 - Saving to Postgres happens after the caption, so it never adds delay.
 - Nothing is translated unless someone is listening in English.
 - The translation and the English-letters line come from one call,
@@ -227,7 +238,8 @@ letters, translation).
 **When something fails**
 - A Fish/DeepSeek error (no credit, bad key) reaches the speaker with the
   real reason, not a blank 500.
-- If the voice fails, the caption has already arrived.
+- If the voice fails, the caption has already arrived, and the listener's
+  player is told the voice has ended so it never waits for it.
 - If saving fails, it's logged and the call carries on.
 - `GET /api/health` reports whether the database and the speech-to-text
   service are up.
@@ -242,7 +254,7 @@ letters, translation).
 | Speech-to-text throughput | One CPU process, ~0.2s per sentence | More worker processes behind a queue; a GPU with batching at higher volume |
 | One backend server | Who is online lives in one server's memory | Move it to Redis, with Socket.IO's Redis adapter |
 | Groq's free tier | ~20 sentences a minute, 1,000 a day; past that, DeepSeek at ~1.2s | A paid Groq plan, or a local translator on a GPU once one is accurate enough |
-| The English voice is the slowest part | Fish takes ~1s to generate a sentence | Play it while it's generated, or a local voice model on a GPU |
+| The English voice is the slowest part | Fish takes ~0.35s before the first piece of audio | A faster voice service (Groq's Orpheus: ~0.2s, but only 100 sentences a day free), or a local voice model on a GPU |
 | No login or usage limits | Anyone with the link can spend credit | Meeting passwords or login, plus per-meeting limits |
 | Video on strict networks | STUN only, no relay | A TURN server (coturn) |
 
@@ -315,6 +327,12 @@ instruction fixed its one serious miss. DeepSeek stayed as the backup for
 when Groq's free quota runs out. Measuring also found that Windows
 "localhost" quietly cost ~250ms per sentence (it tries IPv6 first), fixed
 by using 127.0.0.1.
+
+The English voice got the same treatment: Fish sends its audio in pieces
+(first after ~0.35s, last after ~1.1s), so each piece is passed straight to
+the listener and played while the rest arrives, starting ~0.4s sooner.
+Groq's Orpheus voice model was faster still, but its free tier allows only
+100 sentences a day and it's a different voice, so Fish stayed.
 
 A fully streaming speech-to-speech model was ruled out: Hindi puts the verb
 (and "not") at the end of the sentence, so translating before the sentence
