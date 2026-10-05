@@ -68,6 +68,83 @@ on the CPU (~0.2s per phrase), so it costs nothing per use.
 | Text → English, plus the original in English letters | **DeepSeek** (`deepseek-flash`, thinking off) | ~0.5–1s, free token grant on signup. Kept over a faster local translator (IndicTrans2) for accuracy. Both come back from one call as JSON `{english, romanized}`, so the English-letters line adds no delay. A rule-based transliterator was the other option, but it spells stiffly (`Aja kI mITiMga`) |
 | English text → voice | **Fish Audio** | Consistent voice (`FISH_VOICE_ID`) |
 
+## System design
+
+```mermaid
+flowchart LR
+    S["Speaker's browser<br/>Silero VAD + segmenter"] <-.->|"video + audio<br/>(WebRTC, peer-to-peer)"| L["Listener's browser<br/>captions, plays voice"]
+    S -->|"one WAV per sentence"| B["Backend (NestJS)<br/>signalling + translation"]
+    B -->|"caption + English voice<br/>(Socket.IO)"| L
+    B --> A["Speech-to-text (Python)<br/>IndicConformer, local"]
+    B --> D["DeepSeek<br/>translation"]
+    B --> F["Fish Audio<br/>English STT + voice"]
+    B --> P[("PostgreSQL<br/>meetings, sentences")]
+```
+
+**Two separate paths.** Video and the speaker's real voice go straight
+between browsers over WebRTC and never touch the server; the backend only
+passes along the connection details (signalling). Translation is the other
+path: one WAV per sentence goes to the backend, and the caption and English
+voice come back over the same Socket.IO connection.
+
+**One sentence, end to end** (typical timings; the server step was measured
+on the real call, the rest are estimates):
+
+```mermaid
+sequenceDiagram
+    participant S as Speaker's browser
+    participant B as Backend
+    participant A as Speech-to-text
+    participant D as DeepSeek
+    participant F as Fish Audio
+    participant L as Listener's browser
+    Note over S: waits for a 0.5s pause
+    S->>B: WAV of the sentence (~0.2s upload)
+    B->>A: transcribe (~0.2s)
+    B->>D: translate + English letters (~0.6s)
+    B->>L: caption (on screen at ~1.6s)
+    B->>F: English text to speech
+    F-->>B: mp3
+    B->>L: English voice (heard at ~2.5s)
+    Note over B: sentence saved to Postgres last
+```
+
+**What keeps it fast**
+- The caption goes out the moment the translation exists; it doesn't wait
+  for the voice.
+- The voice is pushed only to English listeners, with no extra request.
+- Saving to Postgres happens after the caption, so it never adds delay.
+- Nothing is translated unless someone is listening in English.
+- The translation and the English-letters line come from one DeepSeek call.
+
+**Live state vs. history.** Who is in a meeting right now (connection,
+name, language) is kept in memory (`PresenceService`): signalling and the
+"is anyone listening in English?" check read it all the time, and an open
+connection isn't something a database row can represent. History lives in
+Postgres: `Meeting` → `Participant` → `Utterance` (original text, English
+letters, translation).
+
+**When something fails**
+- A Fish/DeepSeek error (no credit, bad key) reaches the speaker with the
+  real reason, not a blank 500.
+- If the voice fails, the caption has already arrived.
+- If saving fails, it's logged and the call carries on.
+- `GET /api/health` reports whether the database and the speech-to-text
+  service are up.
+- If video can't connect on a strict network, captions and voice still
+  work, since they go through the server.
+
+**Limits, and how it would scale**
+
+| Limit today | Why | How it would scale |
+|---|---|---|
+| ~6 people per meeting | Everyone connects to everyone (6 people = 15 connections) | A media server (SFU, e.g. LiveKit): each person sends one stream |
+| Speech-to-text throughput | One CPU process, ~0.2s per sentence | More worker processes behind a queue; a GPU with batching at higher volume |
+| One backend server | Who is online lives in one server's memory | Move it to Redis, with Socket.IO's Redis adapter |
+| Translation is the slowest step | DeepSeek, 0.5–1.5s and paid per call | Streaming, caching repeated phrases, or a local translator once one is accurate enough |
+| No login or usage limits | Anyone with the link can spend credit | Meeting passwords or login, plus per-meeting limits |
+| Video on strict networks | STUN only, no relay | A TURN server (coturn) |
+
 ## Decisions, and what each was based on
 
 Each of these was decided by testing the alternatives, not by guessing.
