@@ -18,13 +18,16 @@ async function withFakeClaude(
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const prevBase = process.env.DEEPSEEK_BASE_URL;
   const prevKey = process.env.DEEPSEEK_API_KEY;
+  const prevGroq = process.env.GROQ_API_KEY;
   process.env.DEEPSEEK_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   process.env.DEEPSEEK_API_KEY = 'test-key';
+  delete process.env.GROQ_API_KEY; // these tests are about DeepSeek alone
   try {
     await run();
   } finally {
     process.env.DEEPSEEK_BASE_URL = prevBase;
     process.env.DEEPSEEK_API_KEY = prevKey;
+    if (prevGroq !== undefined) process.env.GROQ_API_KEY = prevGroq;
     await new Promise((resolve) => server.close(resolve));
   }
 }
@@ -193,5 +196,133 @@ describe('englishSoFar', () => {
       'He said "yes"',
     );
     expect(englishSoFar('{"english": "It\\')).toBe('It');
+  });
+});
+
+// A fake Groq server alongside the fake DeepSeek one, to check Groq is used
+// first and DeepSeek takes over when Groq fails.
+async function withFakeGroq(
+  handler: http.RequestListener,
+  run: () => Promise<void>,
+) {
+  const server = http.createServer(handler);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  const prevBase = process.env.GROQ_BASE_URL;
+  const prevKey = process.env.GROQ_API_KEY;
+  process.env.GROQ_BASE_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  process.env.GROQ_API_KEY = 'groq-test-key';
+  try {
+    await run();
+  } finally {
+    process.env.GROQ_BASE_URL = prevBase;
+    if (prevKey === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = prevKey;
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+// Groq streams in the OpenAI format: "data: {json}" lines, then [DONE].
+function groqStream(pieces: string[]): string {
+  return (
+    pieces
+      .map(
+        (content) =>
+          `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`,
+      )
+      .join('') + 'data: [DONE]\n\n'
+  );
+}
+
+describe('TranslateService with Groq', () => {
+  it('uses Groq first, streaming the English', async () => {
+    const translate = new TranslateService();
+    let received: { auth?: string; body?: Record<string, unknown> } = {};
+    let deepSeekCalled = false;
+    await withFakeClaude(
+      (req, res) => {
+        deepSeekCalled = true;
+        res.end();
+      },
+      () =>
+        withFakeGroq(
+          async (req, res) => {
+            received = {
+              auth: req.headers.authorization,
+              body: await readBody(req),
+            };
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.end(
+              groqStream([
+                '{"english": "How are',
+                ' you?", "romanized": "aap kaise hain"}',
+              ]),
+            );
+          },
+          async () => {
+            const seen: string[] = [];
+            const result = await translate.translate(
+              'आप कैसे हैं',
+              'hi',
+              (englishSoFar) => seen.push(englishSoFar),
+            );
+            expect(result).toEqual({
+              english: 'How are you?',
+              romanized: 'aap kaise hain',
+            });
+            expect(seen).toEqual(['How are', 'How are you?']);
+            expect(received.auth).toBe('Bearer groq-test-key');
+            expect(received.body?.model).toBe('qwen/qwen3.8-27b');
+            expect(received.body?.stream).toBe(true);
+            expect(deepSeekCalled).toBe(false);
+          },
+        ),
+    );
+  });
+
+  it('falls back to DeepSeek when Groq is out of quota', async () => {
+    const translate = new TranslateService();
+    await withFakeClaude(
+      (req, res) => {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.end(
+          streamedReply(['{"english": "Hello.", "romanized": "namaste"}']),
+        );
+      },
+      () =>
+        withFakeGroq(
+          (req, res) => {
+            res.writeHead(429, { 'Content-Type': 'application/json' });
+            res.end('{"error":{"message":"Rate limit reached"}}');
+          },
+          async () => {
+            await expect(translate.translate('नमस्ते', 'hi')).resolves.toEqual({
+              english: 'Hello.',
+              romanized: 'namaste',
+            });
+          },
+        ),
+    );
+  });
+
+  it('does not fall back when the caller cancelled it', async () => {
+    const translate = new TranslateService();
+    let deepSeekCalled = false;
+    const cancel = new AbortController();
+    await withFakeClaude(
+      (req, res) => {
+        deepSeekCalled = true;
+        res.end();
+      },
+      () =>
+        withFakeGroq(
+          () => cancel.abort(), // the speaker carried on mid-request
+          async () => {
+            await expect(
+              translate.translate('नमस्ते', 'hi', () => {}, cancel.signal),
+            ).rejects.toThrow();
+            expect(deepSeekCalled).toBe(false);
+          },
+        ),
+    );
   });
 });
