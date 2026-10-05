@@ -21,8 +21,20 @@ const DEEPSEEK_MODEL = 'deepseek-flash';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/anthropic';
 
 // The same instructions for both translators.
-function systemPrompt(lang: string): string {
+// `context`: the last few sentences of the meeting ("Ravi: How are you?").
+// A sentence translated on its own loses what came just before it -- in a
+// real test "ಇಂದಿ ನಿಷ್ಠೆಯನ್ನು" (misheard "today's meeting") became "the
+// Pledge of Allegiance" when it followed "How are you?" as a separate
+// sentence, but was translated correctly when the two arrived together.
+function systemPrompt(lang: string, context: string[] = []): string {
+  const background = context.length
+    ? `The meeting so far, most recent last -- background only, to understand ` +
+      `what is being talked about. Do NOT translate, repeat or answer it:\n` +
+      context.map((line) => `- ${line}`).join('\n') +
+      `\n`
+    : '';
   return (
+    background +
     `You are a live interpreter in a meeting. The user's message is a ` +
     `speech-to-text transcript in ${lang}, so it may contain small ` +
     `recognition mistakes. Speech recognition often mishears a word as a ` +
@@ -63,8 +75,9 @@ export class TranslateService {
     fromLang: string,
     onEnglish: (englishSoFar: string) => void = () => {},
     signal?: AbortSignal,
+    context: string[] = [],
   ): Promise<Translation> {
-    const system = systemPrompt(LANGUAGES[fromLang]);
+    const system = systemPrompt(LANGUAGES[fromLang], context);
     // Turns streamed text into onEnglish calls, only when the English changed.
     let reply = '';
     let lastEnglish = '';

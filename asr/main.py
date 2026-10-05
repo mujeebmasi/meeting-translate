@@ -62,6 +62,12 @@ def tuned_session(name: str) -> ort.InferenceSession:
 model.models["encoder"] = tuned_session("encoder")
 model.models["ctc_decoder"] = tuned_session("ctc_decoder")
 
+# The first run of each language is slow (~0.8-2s instead of ~0.2s): ONNX
+# Runtime sets itself up on first use. Without this, the first sentence of
+# every call paid that cost. One second of silence per language, at startup.
+for _lang in sorted(LANGUAGES):
+    model(torch.zeros(1, SAMPLE_RATE), _lang, "ctc")
+
 app = FastAPI()
 
 

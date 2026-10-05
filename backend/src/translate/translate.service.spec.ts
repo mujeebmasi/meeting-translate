@@ -279,6 +279,34 @@ describe('TranslateService with Groq', () => {
     );
   });
 
+  it('gives the translator the recent sentences as background', async () => {
+    const translate = new TranslateService();
+    let system = '';
+    await withFakeClaude(
+      (req, res) => res.end(),
+      () =>
+        withFakeGroq(
+          async (req, res) => {
+            const body = await readBody(req);
+            system = (body.messages as { content: string }[])[0].content;
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.end(groqStream(['{"english": "Let\'s start the meeting."}']));
+          },
+          async () => {
+            await translate.translate(
+              'ಇಂದಿ ನಿಷ್ಠೆಯನ್ನು',
+              'kn',
+              () => {},
+              undefined,
+              ['Ravi: How are you?'],
+            );
+            expect(system).toContain('- Ravi: How are you?');
+            expect(system).toContain('Do NOT translate');
+          },
+        ),
+    );
+  });
+
   it('falls back to DeepSeek when Groq is out of quota', async () => {
     const translate = new TranslateService();
     await withFakeClaude(

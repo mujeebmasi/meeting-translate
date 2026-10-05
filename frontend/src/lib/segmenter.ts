@@ -22,8 +22,12 @@ const EARLY_SEND_MS = 200;
 // (any non-speech block), not instantly -- an instant cut split a word in
 // half, and the leftover half-word became a nonsense caption. HARD_MAX is
 // the backstop for someone who never leaves a gap at all.
-const MAX_PHRASE_MS = 4000;
-const HARD_MAX_PHRASE_MS = 6000;
+// Was 4s, which cut ordinary 4-5s sentences in two: the second half was
+// translated without the first half's context ("today's meeting... big?").
+// Delay is counted from when the speaker stops, so a longer limit costs
+// nothing for normal sentences; it only holds back captions in a monologue.
+const MAX_PHRASE_MS = 8000;
+const HARD_MAX_PHRASE_MS = 10000;
 const MIN_SPEECH_MS = 400; // ignore coughs and "hmm"s shorter than this
 const PRE_ROLL_MS = 300; // keep a little audio from before speech began
 

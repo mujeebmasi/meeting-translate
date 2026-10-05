@@ -25,9 +25,28 @@ import { CreateMeetingDto } from './meetings.dto';
 import { MOCK } from '../mock-flag';
 import { TARGET_LANG, needsTranslation } from '../languages';
 
+const CONTEXT_LINES = 3;
+const MAX_MEETINGS_REMEMBERED = 500;
+
 @Controller('meetings')
 export class MeetingsController {
   private readonly logger = new Logger(MeetingsController.name);
+
+  // The last few sentences of each meeting, as "Name: English", handed to
+  // the translator as background (see systemPrompt in translate.service).
+  // Kept in memory only; the oldest meetings are dropped past a limit.
+  private recent = new Map<string, string[]>();
+  private remember(code: string, line: string): void {
+    const lines = [...(this.recent.get(code) ?? []), line].slice(
+      -CONTEXT_LINES,
+    );
+    this.recent.delete(code); // re-insert so this meeting counts as newest
+    this.recent.set(code, lines);
+    if (this.recent.size > MAX_MEETINGS_REMEMBERED) {
+      const [oldest] = this.recent.keys(); // a Map keeps insertion order
+      if (oldest !== undefined) this.recent.delete(oldest);
+    }
+  }
 
   constructor(
     private meetings: MeetingsService,
@@ -144,6 +163,7 @@ export class MeetingsController {
               speaker.lang,
               onEnglish,
               signal,
+              this.recent.get(code),
             );
         caption.translations[TARGET_LANG] = result.english;
         caption.romanized = result.romanized;
@@ -172,6 +192,7 @@ export class MeetingsController {
     publish();
     this.phrases.forget(phraseId); // only after the last publish, which checks it
     const translated = caption.translations[TARGET_LANG];
+    this.remember(code, `${speaker.name}: ${translated || caption.original}`);
     this.logger.log(
       `[${code}] ${speaker.name}: "${caption.original}" (` +
         (firstWordsMs ? `first words ${firstWordsMs}ms, ` : '') +
