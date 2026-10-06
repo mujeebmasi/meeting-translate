@@ -17,6 +17,7 @@ const STALL_MS = 5000;
 
 interface Clip {
   chunks: Uint8Array[];
+  type: string; // 'audio/mpeg' for the English voice, 'audio/wav' for a recording
   ended: boolean; // "voice-end" received: no more chunks coming
   feed?: () => void; // hands new chunks to whatever is playing this clip
 }
@@ -40,6 +41,15 @@ export class VoicePlayer {
     clip.feed?.();
   }
 
+  // A whole recording at once (the speaker's own voice, relayed by the
+  // server). Queued with the English voice so nothing plays on top of it.
+  whole(id: string, base64: string, type: string): void {
+    const clip: Clip = { chunks: [fromBase64(base64)], type, ended: true };
+    this.clips.set(id, clip);
+    this.queue.push(id);
+    this.playNext();
+  }
+
   end(id: string): void {
     const clip = this.clips.get(id);
     if (!clip) return; // never got any audio for it (e.g. voice switched off)
@@ -50,7 +60,7 @@ export class VoicePlayer {
   private getOrQueue(id: string): Clip {
     let clip = this.clips.get(id);
     if (!clip) {
-      clip = { chunks: [], ended: false };
+      clip = { chunks: [], type: 'audio/mpeg', ended: false };
       this.clips.set(id, clip);
       this.queue.push(id);
       this.playNext();
@@ -83,7 +93,7 @@ export class VoicePlayer {
       if (!clip.ended) stallTimer = setTimeout(done, STALL_MS);
     };
 
-    if (CAN_STREAM) this.playWhileArriving(clip, done, watchForStall);
+    if (CAN_STREAM && clip.type === 'audio/mpeg') this.playWhileArriving(clip, done, watchForStall);
     else this.playWhenComplete(clip, done, watchForStall);
   }
 
@@ -124,7 +134,7 @@ export class VoicePlayer {
       watchForStall();
       if (!clip.ended) return;
       clip.feed = undefined;
-      const url = URL.createObjectURL(new Blob(clip.chunks as BlobPart[], { type: 'audio/mpeg' }));
+      const url = URL.createObjectURL(new Blob(clip.chunks as BlobPart[], { type: clip.type }));
       const audio = new Audio(url);
       const finish = () => {
         URL.revokeObjectURL(url);

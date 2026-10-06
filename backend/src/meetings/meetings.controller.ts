@@ -150,6 +150,19 @@ export class MeetingsController {
         return caption.original ? { cancelled: true } : { empty: true }; // empty = just noise
       }
 
+      // Safety net for the speaker's real voice: once the sentence is
+      // confirmed, pass the recording itself on too, for anyone whose live
+      // connection to the speaker is blocked (see sendOriginalVoice). Sent
+      // as soon as it's known to be speech, without waiting for translation.
+      void this.phrases.decided(phraseId).then((ok) => {
+        if (ok)
+          this.gateway.sendOriginalVoice(code, speaker, {
+            id: phraseId,
+            from: speaker.socketId,
+            audio: body.toString('base64'),
+          });
+      });
+
       if (needsTranslation(speaker.lang, this.presence.languagesInUse(code))) {
         const onEnglish = (englishSoFar: string) => {
           caption.translations[TARGET_LANG] = englishSoFar;

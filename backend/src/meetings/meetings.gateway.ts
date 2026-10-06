@@ -8,7 +8,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
-import { LANGUAGES } from '../languages';
+import { LANGUAGES, TARGET_LANG } from '../languages';
 import { MOCK } from '../mock-flag';
 import { MeetingsService } from './meetings.service';
 import { PresenceService } from './presence.service';
@@ -193,6 +193,25 @@ export class MeetingsGateway implements OnGatewayDisconnect {
 
   // Spoken audio is much bigger than a caption, so it only goes to the
   // people listening in that language, not the whole room.
+  // The speaker's own recorded sentence, for everyone who hears the
+  // speaker's real voice rather than a translation -- i.e. everyone except
+  // English listeners of a non-English speaker. Their browser only plays it
+  // if the live, direct connection to the speaker isn't working (blocked
+  // between some networks); otherwise they already heard it live.
+  sendOriginalVoice(
+    code: string,
+    speaker: { socketId: string; lang: string },
+    payload: unknown,
+  ): void {
+    for (const peer of this.presence.list(code)) {
+      if (peer.socketId === speaker.socketId) continue;
+      const getsTranslation =
+        speaker.lang !== TARGET_LANG && peer.lang === TARGET_LANG;
+      if (!getsTranslation)
+        this.server.to(peer.socketId).emit('original-voice', payload);
+    }
+  }
+
   // `event` is "voice-chunk" (a piece of the audio) or "voice-end".
   sendVoice(code: string, lang: string, event: string, payload: unknown): void {
     for (const peer of this.presence.list(code)) {

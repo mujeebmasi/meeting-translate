@@ -46,3 +46,11 @@ export interface VoiceChunk {
 // Translation only ever goes into English (Hindi/Telugu -> English), same
 // rule as the backend's needsTranslation().
 export const TARGET_LANG = 'en';
+
+// The speaker's own recorded sentence (WAV), relayed by the server for
+// people whose live connection to the speaker is blocked.
+export interface OriginalVoice {
+  id: string;
+  from: string; // speaker's socketId
+  audio: string; // base64 wav
+}

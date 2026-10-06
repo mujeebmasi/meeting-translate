@@ -6,7 +6,14 @@ import { useParams, useRouter } from 'next/navigation';
 import { io, type Socket } from 'socket.io-client';
 import { api, errorMessage, WS_URL } from '@/lib/api';
 import { Segmenter } from '@/lib/segmenter';
-import { TARGET_LANG, type Caption, type Languages, type PublicPeer, type VoiceChunk } from '@/lib/types';
+import {
+  TARGET_LANG,
+  type Caption,
+  type Languages,
+  type OriginalVoice,
+  type PublicPeer,
+  type VoiceChunk,
+} from '@/lib/types';
 import { VoicePlayer } from '@/lib/voice-player';
 import { Button, Card, ErrorText, Label } from '@/components/ui';
 import { VideoTile } from '@/components/video-tile';
@@ -25,6 +32,10 @@ interface RemotePeer extends PublicPeer {
   // upsertPeerInfo/setPeerConnection below for why those are two separate steps.
   pc: RTCPeerConnection | null;
   stream: MediaStream | null;
+  // The live, direct connection's state ('connected', 'failed', ...). Between
+  // some networks it never connects, and then their real voice comes
+  // relayed through the server instead (see "original-voice").
+  link: RTCPeerConnectionState;
 }
 
 export default function MeetingRoom() {
@@ -180,6 +191,14 @@ export default function MeetingRoom() {
     });
     socket.on('voice-end', (voice: { id: string }) => voicePlayer().end(voice.id));
 
+    // The speaker's real voice, relayed by the server. Played only if the
+    // live connection to them isn't working -- otherwise we already heard
+    // them live, and this would be an echo a second later.
+    socket.on('original-voice', (voice: OriginalVoice) => {
+      const peer = peersRefLookup(voice.from);
+      if (peer && peer.link !== 'connected') voicePlayer().whole(voice.id, voice.audio, 'audio/wav');
+    });
+
     socket.on('full', () => setLobbyError('This meeting is full.'));
 
     socket.on('connect_error', () => {
@@ -200,6 +219,17 @@ export default function MeetingRoom() {
     pc.ontrack = (event) => {
       setPeers((prev) => prev.map((p) => (p.socketId === peerId ? { ...p, stream: event.streams[0] } : p)));
     };
+    const setLink = (link: RTCPeerConnectionState) =>
+      setPeers((prev) => prev.map((p) => (p.socketId === peerId ? { ...p, link } : p)));
+    pc.onconnectionstatechange = () => setLink(pc.connectionState);
+    // When the network blocks it, the browser can keep "trying" for a long
+    // time before declaring the connection failed. 10s is plenty for one
+    // that's going to work, so treat it as failed then (the tile says so,
+    // and the relayed voice keeps playing). If it connects later after all,
+    // onconnectionstatechange sets it back to 'connected'.
+    setTimeout(() => {
+      if (pc.connectionState !== 'connected' && pc.connectionState !== 'closed') setLink('failed');
+    }, 10_000);
     return pc;
   }
 
@@ -214,7 +244,7 @@ export default function MeetingRoom() {
       if (prev.some((p) => p.socketId === info.socketId)) {
         return prev.map((p) => (p.socketId === info.socketId ? { ...p, ...info } : p));
       }
-      return [...prev, { ...info, pc: null, stream: null }];
+      return [...prev, { ...info, pc: null, stream: null, link: 'new' }];
     });
   }
 
@@ -224,7 +254,7 @@ export default function MeetingRoom() {
         return prev.map((p) => (p.socketId === socketId ? { ...p, pc } : p));
       }
       // Shouldn't normally happen (info always arrives first), but stay safe.
-      return [...prev, { socketId, participantId: 0, name: 'Guest', lang: 'en', pc, stream: null }];
+      return [...prev, { socketId, participantId: 0, name: 'Guest', lang: 'en', pc, stream: null, link: 'new' }];
     });
   }
 
@@ -486,6 +516,7 @@ export default function MeetingRoom() {
             muted={isTranslatedForMe(p)}
             name={p.name}
             label={`${p.name} · ${languages[p.lang] ?? p.lang}`}
+            notice={linkNotice(p.link)}
           />
         ))}
         {peers.length === 0 && (
@@ -562,4 +593,13 @@ function languageHint(lang: string, peers: { lang: string }[], languages: Langua
   if (peers.length > 0 && !peers.some((p) => p.lang === TARGET_LANG))
     return `Nobody else is on English, so your ${mine} is not being translated. To hear someone in English, set "I speak" to English.`;
   return `Speak ${mine}. English listeners hear you translated into English.`;
+}
+
+// What to show on someone's tile while the live connection to them isn't up.
+// A failed connection used to look like a plain black box.
+function linkNotice(link: RTCPeerConnectionState): string | undefined {
+  if (link === 'failed' || link === 'disconnected')
+    return "Can't connect video on this network. You'll still hear them, just after each sentence.";
+  if (link !== 'connected') return 'Connecting...';
+  return undefined;
 }
