@@ -58,6 +58,11 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
      English listeners (`voice-chunk` socket events) the moment Fish sends
      it, then `voice-end`, so their browser starts playing ~0.4s before the
      whole file exists. Saved to Postgres last, without holding anything up.
+  4. relayed as the speaker's own recording (`original-voice`, sent by
+     `sendOriginalVoice()` in the gateway) to everyone who hears the real
+     voice rather than a translation. Their browser plays it only if its
+     direct connection to the speaker is down -- a safety net for networks
+     that block browser-to-browser connections, since there's no TURN relay.
 
 ## Setup
 

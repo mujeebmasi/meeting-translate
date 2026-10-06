@@ -27,9 +27,11 @@ Next.js 16 (App Router) · TypeScript · React 19 · Tailwind CSS 4 ·
   on English, so your Hindi is not being translated."
 - **Video tiles** (`src/components/video-tile.tsx`): name and language on
   each. With no picture (still connecting, no camera, camera off) the tile
-  shows the person's initial. The `<video>` element is hidden rather than
-  removed, because it also plays that person's audio. Your own tile is
-  mirrored and says "mic off" when muted.
+  shows the person's initial. Sound plays through a separate `<audio>`
+  element (a `<video>` stays silent until a picture arrives). Your own tile
+  is mirrored and says "mic off" when muted. If the direct connection to
+  someone fails (or isn't up after 10s), their tile says so, and their real
+  voice is played from the server's `original-voice` relay instead.
 - **Captions box:** English caption, with the speaker's words in English
   letters underneath. It auto-scrolls to the newest caption, but not while
   you've scrolled up to read an older one.

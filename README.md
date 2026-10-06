@@ -68,6 +68,13 @@ too.
     translator gets the meeting's last 3 sentences as background.
 13. **The first sentence of a call took 2.4s** (the speech model's first
     run per language is slow) → each language is run once at startup.
+14. **On a real call between two different Wi-Fi networks, the other
+    person's real voice and video never arrived** (the direct
+    browser-to-browser connection was blocked, and there's no TURN relay)
+    → the server also relays the speaker's own recorded sentence, played
+    only when the direct connection is down; the tile says so instead of
+    staying black. And sound now has its own `<audio>` element, because a
+    `<video>` stays silent until a picture arrives.
 
 More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 
@@ -80,8 +87,11 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 - **Not deployed**: runs on a laptop; live demos go through a free
   Cloudflare tunnel.
 - **About 6 people per meeting**: everyone connects to everyone.
-- **No TURN server**: video may fail on strict networks (captions and voice
-  still work).
+- **No TURN relay**: between some networks (two different home Wi-Fis, in a
+  real test) the direct connection is blocked, so there's **no video**, and
+  the other person's real voice arrives **after each sentence** (~1s,
+  relayed by the server) instead of live. Captions and the AI voice are
+  unaffected.
 - **Depends on external services**: Groq (free tier: ~20 sentences a
   minute, 1,000 a day; past that it falls back to DeepSeek at ~1.2s), DeepSeek
   and Fish Audio.
@@ -98,7 +108,8 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 - **Cheap**: speech-to-text is local and free; translation and voice cost a
   fraction of a rupee per sentence.
 - **Private, fast video**: it goes straight between browsers, never through
-  the server.
+  the server (only per-sentence voice recordings are relayed, and only when
+  a network blocks the direct connection).
 - **Tested with real people**, with measured numbers and every decision
   written down.
 - **Well documented and tested**: system design, decisions, a health
@@ -114,7 +125,9 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
   re-read.
 - **Video tiles** show each person's name and language. Someone with no
   camera, or with it off, shows as their initial. Your own camera is
-  mirrored, and your tile says "mic off" while you're muted.
+  mirrored, and your tile says "mic off" while you're muted. If the network
+  blocks a direct connection to someone, their tile says so, and you still
+  hear their real voice, a moment after each sentence.
 - **Mute and Camera off turn red** while off. "Translated voice" (English
   listeners only) switches between the English voice and the speaker's own.
 - Alone in a call, a tile offers the invite link to copy.
@@ -152,7 +165,15 @@ recorded sentence in each language, then Hindi and Telugu again:
 
 The tunnel and a busy CPU add ~0.3s over the same-laptop numbers above.
 
-**Real two-person call** (two people, two devices, different networks,
+**Real two-person call after the speed-ups** (two devices on two
+different Wi-Fi networks, Hindi ↔ English): 32 translated sentences, no
+errors. Server time to the first English words: **median 0.61s**, 90% under
+1.03s; to the first voice audio: **median 1.03s** (add ~0.3s for the
+listener's screen). Nearly every sentence was right, including a garbled
+"Echo Dot" the translator repaired from context. This call is also where
+the blocked direct connection showed up (see problem 14).
+
+**First real two-person call** (two people, two devices, different networks,
 Hindi speaker → English listener and back, before the speed-ups above):
 server time from receiving a sentence to sending its caption was **0.79s
 median, 1.5s for 90% of sentences**, over 75 sentences. Most mistakes in that call came from someone
@@ -209,7 +230,10 @@ flowchart LR
 between browsers over WebRTC and never touch the server; the backend only
 passes along the connection details (signalling). Translation is the other
 path: one WAV per sentence goes to the backend, and the caption and English
-voice come back over the same Socket.IO connection.
+voice come back over the same Socket.IO connection. When a network blocks
+the direct path, that same per-sentence WAV doubles as the fallback for the
+real voice: the server relays it, and it plays only while the direct
+connection is down.
 
 **One sentence, end to end** (measured; times from when the speaker stops):
 
@@ -263,8 +287,13 @@ letters, translation).
 - If saving fails, it's logged and the call carries on.
 - `GET /api/health` reports whether the database and the speech-to-text
   service are up.
-- If video can't connect on a strict network, captions and voice still
-  work, since they go through the server.
+- If the direct connection between two browsers is blocked (it was,
+  between two home Wi-Fi networks), captions and the AI voice still work
+  since they go through the server, and the speaker's real voice is relayed
+  by the server too: each confirmed sentence's recording goes to everyone
+  who hears the real voice, and a browser plays it only while its direct
+  connection to that speaker is down, so there's no echo when it works.
+  A connection not up after 10s counts as failed.
 
 **Limits, and how it would scale**
 
@@ -276,7 +305,7 @@ letters, translation).
 | Groq's free tier | ~20 sentences a minute, 1,000 a day; past that, DeepSeek at ~1.2s | A paid Groq plan, or a local translator on a GPU once one is accurate enough |
 | The English voice is the slowest part | Fish takes ~0.35s before the first piece of audio | A faster voice service (Groq's Orpheus: ~0.2s, but only 100 sentences a day free), or a local voice model on a GPU |
 | No login or usage limits | Anyone with the link can spend credit | Meeting passwords or login, plus per-meeting limits |
-| Video on strict networks | STUN only, no relay | A TURN server (coturn) |
+| Blocked direct connections | STUN only, no relay: no video, and the real voice comes after each sentence | A TURN relay (e.g. Metered's free tier, or coturn) for live voice and video |
 
 ## Decisions, and what each was based on
 
@@ -373,7 +402,17 @@ A run through the public links, with real 4–5s sentences:
   first run per language is slow. The service now runs each language once
   at startup.
 
-**12. Not deployed, on purpose.** The speech model needs ~3–4 GB of memory,
+**12. A no-account safety net for the real voice, not just "add TURN".**
+The proper fix for blocked connections is a TURN relay, but Cloudflare's
+asked for a card and the budget is ₹0. Each sentence's recording was
+already reaching the server for captions, so relaying it costs no new
+service: a listener plays it only while the direct connection is down
+(tested both ways: blocked, it played 0.83–1.10s after the sentence;
+working, nothing extra played). The trade-off is voice after each
+sentence instead of live, and no video. A TURN relay can still be added
+on top for live voice and video.
+
+**13. Not deployed, on purpose.** The speech model needs ~3–4 GB of memory,
 which rules out free hosting, and a public link would let anyone spend the
 translation and voice credit. Live demos run from a laptop through a free
 Cloudflare tunnel instead.
