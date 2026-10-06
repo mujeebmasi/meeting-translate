@@ -61,8 +61,9 @@ NestJS 11 · Prisma 6.19.3 · PostgreSQL · Socket.IO (`@nestjs/websockets`)
   4. relayed as the speaker's own recording (`original-voice`, sent by
      `sendOriginalVoice()` in the gateway) to everyone who hears the real
      voice rather than a translation. Their browser plays it only if its
-     direct connection to the speaker is down -- a safety net for networks
-     that block browser-to-browser connections, since there's no TURN relay.
+     direct connection to the speaker is down -- the last resort for
+     networks that block browser-to-browser connections, if even the TURN
+     relay (below) can't get through.
 
 ## Setup
 
@@ -116,9 +117,12 @@ coverage.
 
 ## Known limits (it's a prototype)
 
-- **No TURN server** -- WebRTC only has a public STUN server configured (see
-  the frontend's `RTC_CONFIG`). On strict corporate/mobile networks that
-  block direct peer connections, video may not connect.
+- **TURN relay is a free tier with a static login** (`src/meetings/ice-servers.ts`,
+  sent to browsers in the "welcome" message). Set `TURN_URL`,
+  `TURN_USERNAME`, `TURN_PASSWORD` in `.env` (ExpressTURN's free plan:
+  `turn:free.expressturn.com:3478`). Without it, networks that block direct
+  peer connections get no video. Participants' browsers can see the login;
+  production would issue short-lived ones per meeting.
 - **Up to 6 people per meeting** (`MAX_PEOPLE` in `meetings.gateway.ts`) --
   video is peer-to-peer, so every extra person adds a connection to everyone
   else.

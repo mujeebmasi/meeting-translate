@@ -89,8 +89,10 @@ Camera and microphone access require `localhost` or `https://` -- a plain
 
 ## Known limits (it's a prototype)
 
-- No TURN server is configured (`RTC_CONFIG` in the meeting page) -- on a
-  strict network that blocks direct peer connections, video may not connect.
+- Networks that block direct peer connections need the TURN relay
+  configured on the backend (`TURN_*` in its `.env`); the page gets it in
+  the "welcome" message. Without it, video can't connect there and the real
+  voice comes per sentence from the server relay.
 - No automated tests on the frontend, matching this project's other
   portfolio pieces -- `src/lib/segmenter.ts` (the phrase-cutting logic) is the
   one thing here worth unit-testing, and it's a straight TypeScript port of

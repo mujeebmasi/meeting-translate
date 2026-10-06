@@ -29,7 +29,8 @@ too.
   words, and met. How: [Getting under 0.7s](#getting-under-07s).
 
 ### Stack
-- **Frontend:** Next.js, React, TypeScript, Tailwind; WebRTC for video,
+- **Frontend:** Next.js, React, TypeScript, Tailwind; WebRTC for video
+  (with an ExpressTURN relay for networks that block direct connections),
   Socket.IO, Silero VAD for voice detection in the browser.
 - **Backend:** NestJS, Socket.IO, Prisma, PostgreSQL.
 - **Speech-to-text:** Python (FastAPI) running AI4Bharat's IndicConformer
@@ -74,7 +75,9 @@ too.
     → the server also relays the speaker's own recorded sentence, played
     only when the direct connection is down; the tile says so instead of
     staying black. And sound now has its own `<audio>` element, because a
-    `<video>` stays silent until a picture arrives.
+    `<video>` stays silent until a picture arrives. Then a **TURN relay**
+    (ExpressTURN's free tier) made video and the real voice live again on
+    blocked networks; the per-sentence relay stays as the last resort.
 
 More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 
@@ -87,11 +90,13 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 - **Not deployed**: runs on a laptop; live demos go through a free
   Cloudflare tunnel.
 - **About 6 people per meeting**: everyone connects to everyone.
-- **No TURN relay**: between some networks (two different home Wi-Fis, in a
-  real test) the direct connection is blocked, so there's **no video**, and
-  the other person's real voice arrives **after each sentence** (~1s,
-  relayed by the server) instead of live. Captions and the AI voice are
-  unaffected.
+- **Blocked networks rely on a free TURN relay** (ExpressTURN, 1,000 GB a
+  month). Between some networks (two different home Wi-Fis, in a real test)
+  the direct connection is blocked; the relay carries the live video and
+  voice then. If it's ever unavailable or not configured, there's no video
+  and the real voice arrives after each sentence (~1s, relayed by the
+  server). Captions and the AI voice are unaffected either way. The TURN
+  login is static, so meeting participants' browsers can see it.
 - **Depends on external services**: Groq (free tier: ~20 sentences a
   minute, 1,000 a day; past that it falls back to DeepSeek at ~1.2s), DeepSeek
   and Fish Audio.
@@ -288,12 +293,15 @@ letters, translation).
 - `GET /api/health` reports whether the database and the speech-to-text
   service are up.
 - If the direct connection between two browsers is blocked (it was,
-  between two home Wi-Fi networks), captions and the AI voice still work
-  since they go through the server, and the speaker's real voice is relayed
-  by the server too: each confirmed sentence's recording goes to everyone
-  who hears the real voice, and a browser plays it only while its direct
-  connection to that speaker is down, so there's no echo when it works.
-  A connection not up after 10s counts as failed.
+  between two home Wi-Fi networks), the call goes through a **TURN relay**
+  instead: live video and voice, just routed via the relay. The browser
+  gets the relay's address and login from the server when it joins.
+- If even that fails, captions and the AI voice still work since they go
+  through the server, and the speaker's real voice is relayed by the server
+  too: each confirmed sentence's recording goes to everyone who hears the
+  real voice, and a browser plays it only while its connection to that
+  speaker is down, so there's no echo when it works. A connection not up
+  after 10s counts as failed, and the tile says so.
 
 **Limits, and how it would scale**
 
@@ -305,7 +313,7 @@ letters, translation).
 | Groq's free tier | ~20 sentences a minute, 1,000 a day; past that, DeepSeek at ~1.2s | A paid Groq plan, or a local translator on a GPU once one is accurate enough |
 | The English voice is the slowest part | Fish takes ~0.35s before the first piece of audio | A faster voice service (Groq's Orpheus: ~0.2s, but only 100 sentences a day free), or a local voice model on a GPU |
 | No login or usage limits | Anyone with the link can spend credit | Meeting passwords or login, plus per-meeting limits |
-| Blocked direct connections | STUN only, no relay: no video, and the real voice comes after each sentence | A TURN relay (e.g. Metered's free tier, or coturn) for live voice and video |
+| Free TURN relay | 1,000 GB a month of relayed video/voice; a static login | A paid or self-hosted relay (coturn) with short-lived logins issued per meeting |
 
 ## Decisions, and what each was based on
 
@@ -409,8 +417,16 @@ already reaching the server for captions, so relaying it costs no new
 service: a listener plays it only while the direct connection is down
 (tested both ways: blocked, it played 0.83–1.10s after the sentence;
 working, nothing extra played). The trade-off is voice after each
-sentence instead of live, and no video. A TURN relay can still be added
-on top for live voice and video.
+sentence instead of live, and no video.
+
+Then a TURN relay after all, still at ₹0: Cloudflare's and Metered's both
+wanted a card, and the public "Open Relay" server turned out to be dead
+(tested from the browser: every allocation failed). ExpressTURN's free
+tier (1,000 GB a month) needed only an email. Tested with both browsers
+refusing direct connections: live video and voice through the relay, and
+the per-sentence relay stayed off. Nothing in our code had caused the
+blocked connection (two-tab tests connected fine; it depends on the two
+networks), so the fix was infrastructure, not undoing changes.
 
 **13. Not deployed, on purpose.** The speech model needs ~3–4 GB of memory,
 which rules out free hosting, and a public link would let anyone spend the
@@ -432,7 +448,7 @@ Cloudflare tunnel instead.
    It takes ~30s to start: it loads the model, then runs each language once
    so the first sentence of a call isn't slow. `GET /api/health` on the
    backend says when it's ready.
-2. **Backend** — see `backend/README.md` for `.env` (Postgres, Fish, DeepSeek, and optionally Groq):
+2. **Backend** — see `backend/README.md` for `.env` (Postgres, Fish, DeepSeek, and optionally Groq and a TURN relay):
    ```bash
    cd backend
    npm install
