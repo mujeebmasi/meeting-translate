@@ -18,14 +18,25 @@ import { VoicePlayer } from '@/lib/voice-player';
 import { Button, Card, ErrorText, Label } from '@/components/ui';
 import { VideoTile } from '@/components/video-tile';
 
-// Free public STUN server: lets two browsers find their public addresses.
-// Some strict networks also need a TURN relay, which this prototype does not have.
-const RTC_CONFIG: RTCConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+// Until the server says otherwise ("welcome" carries the real list, which
+// includes the TURN relay when one is configured): a free public STUN server,
+// which lets two browsers find their public addresses and try to connect
+// directly. Between some networks that's blocked, and only TURN gets through.
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
 
 // Where the voice detector loads its model and runtime from. Pinned to the
 // installed package versions so they always match the code that uses them.
 const VAD_ASSET_URL = 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/';
 const ONNX_RUNTIME_URL = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/';
+
+interface WelcomeMessage {
+  you: string;
+  participantId: number;
+  title: string;
+  peers: PublicPeer[];
+  mock: boolean;
+  iceServers?: RTCIceServer[]; // STUN, plus the TURN relay if one is configured
+}
 
 interface RemotePeer extends PublicPeer {
   // null until either we call them or their offer arrives -- see
@@ -72,6 +83,7 @@ export default function MeetingRoom() {
   const [readAloud, setReadAloud] = useState(true);
 
   const socketRef = useRef<Socket | null>(null);
+  const iceServersRef = useRef<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
   const playingVoiceRef = useRef(false); // true while a translated voice plays
   // Created on first use (browser-only APIs inside), then kept for the call.
   const voicePlayerRef = useRef<VoicePlayer | null>(null);
@@ -138,7 +150,8 @@ export default function MeetingRoom() {
 
     socket.on('connect', () => socket.emit('join', { code, name, lang }));
 
-    socket.on('welcome', (msg: { you: string; participantId: number; title: string; peers: PublicPeer[]; mock: boolean }) => {
+    socket.on('welcome', (msg: WelcomeMessage) => {
+      if (msg.iceServers?.length) iceServersRef.current = msg.iceServers;
       setMySocketId(msg.you);
       setMyParticipantId(msg.participantId);
       setMeetingTitle(msg.title);
@@ -210,7 +223,7 @@ export default function MeetingRoom() {
   // ---------- WebRTC ----------
 
   function createConnection(peerId: string, stream: MediaStream): RTCPeerConnection {
-    const pc = new RTCPeerConnection(RTC_CONFIG);
+    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current });
     for (const track of stream.getTracks()) pc.addTrack(track, stream);
 
     pc.onicecandidate = (event) => {

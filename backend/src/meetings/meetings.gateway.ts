@@ -13,6 +13,7 @@ import { MOCK } from '../mock-flag';
 import { MeetingsService } from './meetings.service';
 import { PresenceService } from './presence.service';
 import { PhraseGate } from './phrase-gate.service';
+import { iceServers } from './ice-servers';
 
 // Video and audio go straight between browsers (WebRTC). Before they can,
 // the browsers must swap connection details, and this gateway is the
@@ -112,6 +113,7 @@ export class MeetingsGateway implements OnGatewayDisconnect {
       title: meeting.title,
       peers: others.map((p) => this.presence.toPublic(p)),
       mock: MOCK,
+      iceServers: iceServers(),
     });
     client
       .to(body.code)
