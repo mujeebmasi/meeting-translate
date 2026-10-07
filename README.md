@@ -90,6 +90,10 @@ too.
     `<video>` stays silent until a picture arrives. Then a **TURN relay**
     (ExpressTURN's free tier) made video and the real voice live again on
     blocked networks; the per-sentence relay stays as the last resort.
+15. **The deployed site never became healthy when started from a Git Bash
+    window** ("No Python at …" from `uv run`'s launcher) → the start script
+    runs the speech service with its environment's own Python, as the
+    container does.
 
 More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 
@@ -116,10 +120,18 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
   and Fish Audio.
 - **Tamil and Kannada** were tested only with generated audio, not a real
   speaker.
+- **Very short sounds can become captions**: a laugh caught as one
+  syllable became "घ" → "Gha". Filtering out one-syllable phrases is a
+  small fix not done yet.
+- **English spoken while set to Hindi** is written phonetically in Hindi
+  script ("what's up guys" → "वट्सअप गायस") and treated as Hindi.
 
 ### Pros
 - **Solves a real Indian problem** with the first English words on screen
   in under 0.7s, and the English voice playing in under 1.5s.
+- **Understands the conversation, not just words**: the same Hindi
+  sentence ("मुझे सोना चाहिए", sona = sleep or gold) is translated as
+  "sleep" or "gold" depending on what was said just before.
 - **Accurate for Indian languages**: a model built for them, plus a
   translator that repairs misheard words.
 - **English letters under each caption** ("aaj ki meeting mein kya hua")
@@ -183,6 +195,17 @@ recorded sentence in each language, then Hindi and Telugu again:
 | Telugu, Tamil, Kannada, Hindi | 0.79–0.99s | 1.15–1.50s | ✅ all 9 captions |
 
 The tunnel and a busy CPU add ~0.3s over the same-laptop numbers above.
+
+**Real call on the public link** (two people, the deployed site through
+ngrok, laptop plugged in): 30 translated Hindi sentences, no errors. Server
+time to the first English words: **median 0.65s** (0.31–0.93s); to the
+first voice audio: **median 1.12s**. Long natural sentences came through
+cleanly ("कल दोपहर साढ़े बारह बजे मीटिंग स्टार्ट होगी, सबके सब टाइम पर
+ज़रूर आना"). And the context feature showed up on real speech: "सोना"
+means both "to sleep" and "gold", so "मुझे सोना चाहिए" on its own came out
+as "I should sleep" — but after "I need four hundred grams of gold", the
+same sentence became **"I need gold."**, and "seven hours" pulled it back
+to sleep, the way a human interpreter would read it.
 
 **Real two-person call after the speed-ups** (two devices on two
 different Wi-Fi networks, Hindi ↔ English): 32 translated sentences, no
