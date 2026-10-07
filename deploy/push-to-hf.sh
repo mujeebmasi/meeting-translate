@@ -13,7 +13,11 @@
 # reads its settings from), not the project README.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-source deploy/.env
+# Read just the two settings this needs (not "source": other lines, like a
+# database URL with & and ?, aren't valid shell).
+setting() { grep -E "^$1=" deploy/.env | head -1 | cut -d= -f2- | tr -d "\"'"; }
+HF_SPACE=$(setting HF_SPACE)
+HF_WRITE_TOKEN=$(setting HF_WRITE_TOKEN)
 
 commit=$(git rev-parse --short HEAD)
 work=$(mktemp -d)
@@ -26,6 +30,11 @@ git add -A
 git -c user.name="$(git -C "$OLDPWD" config user.name)" \
     -c user.email="$(git -C "$OLDPWD" config user.email)" \
     commit -q -m "Deploy $commit"
-git push -q -f "https://user:${HF_WRITE_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main
+# Some Indian ISPs reset connections to huggingface.co over IPv6 (IPv4 works),
+# so pin its IPv4 address for this push when Python is around to look it up.
+ipv4=$(python -c "import socket; print(socket.getaddrinfo('huggingface.co', 443, socket.AF_INET)[0][4][0])" 2>/dev/null || true)
+pin=()
+[ -n "$ipv4" ] && pin=(-c "http.curloptResolve=huggingface.co:443:$ipv4")
+git "${pin[@]}" push -q -f "https://user:${HF_WRITE_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main
 echo "Pushed $commit to https://huggingface.co/spaces/${HF_SPACE} -- HF is building it now."
 rm -rf "$work"
