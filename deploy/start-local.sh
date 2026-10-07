@@ -43,7 +43,12 @@ if [ "${1:-}" != "--no-build" ]; then
 fi
 
 echo "Starting services..."
-(cd asr && uv run uvicorn main:app --host 127.0.0.1 --port 5001) > deploy/logs/asr.log 2>&1 &
+# The speech service's own Python, directly. "uv run" goes through a small
+# launcher that failed from some terminals ("No Python at ..."); this is also
+# how the container starts it.
+ASR_PY=asr/.venv/Scripts/python.exe
+[ -x "$ASR_PY" ] || ASR_PY=asr/.venv/bin/python
+(cd asr && "../$ASR_PY" -m uvicorn main:app --host 127.0.0.1 --port 5001) > deploy/logs/asr.log 2>&1 &
 (cd backend && NODE_ENV=production ACCESS_CODE="$ACCESS_CODE" FRONTEND_URL="https://$DOMAIN" node dist/main.js) > deploy/logs/backend.log 2>&1 &
 (cd frontend && npx next start -H 127.0.0.1 -p 3000) > deploy/logs/frontend.log 2>&1 &
 "$CADDY" run --config deploy/Caddyfile --adapter caddyfile > deploy/logs/router.log 2>&1 &
