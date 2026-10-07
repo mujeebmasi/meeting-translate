@@ -14,6 +14,18 @@ instead of in the native script:
 So an English listener who half-knows the language can follow the original
 too.
 
+## Live demo
+
+**https://absinthe-croak-subsystem.ngrok-free.dev**
+
+- Hosted from my laptop through ngrok, so it's online when I'm running it.
+  If it doesn't load, it's offline; ask me and I'll start it.
+- ngrok shows a one-time "You are about to visit" page first; click
+  **Visit Site**.
+- Creating a meeting needs an **access code** (ask me for it). Joining by
+  invite link doesn't. Open the link on two devices, one speaking Hindi,
+  Telugu, Tamil or Kannada and one listening in English, with headphones.
+
 ## At a glance
 
 ### Delay
@@ -85,10 +97,12 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 - Translates **only into English**.
 - **Speakers pick their language manually**; a wrong choice gives
   gibberish.
-- **No login, meeting password or usage limits**, so anyone with the link
-  can spend API credit.
-- **Not deployed**: runs on a laptop; live demos go through a free
-  Cloudflare tunnel.
+- **No user accounts.** Creating a meeting needs a shared access code,
+  and usage is capped (300 sentences per meeting, 500 English voices a
+  day), so a leaked link can't run up the paid voice service.
+- **Hosted from a laptop** through a fixed ngrok address: online only
+  while it's running, and ngrok's free plan shows visitors a warning page
+  (with the laptop's internet address) first.
 - **About 6 people per meeting**: everyone connects to everyone.
 - **Blocked networks rely on a free TURN relay** (ExpressTURN, 1,000 GB a
   month). Between some networks (two different home Wi-Fis, in a real test)
@@ -428,10 +442,15 @@ the per-sentence relay stayed off. Nothing in our code had caused the
 blocked connection (two-tab tests connected fine; it depends on the two
 networks), so the fix was infrastructure, not undoing changes.
 
-**13. Not deployed, on purpose.** The speech model needs ~3–4 GB of memory,
-which rules out free hosting, and a public link would let anyone spend the
-translation and voice credit. Live demos run from a laptop through a free
-Cloudflare tunnel instead.
+**13. Deployed from a laptop, at ₹0.** The speech model needs ~3–4 GB of
+memory, which rules out most free hosting. Hugging Face Spaces was the plan
+(one Docker container with everything inside, the model baked in), but
+Docker Spaces now need a paid plan. The same container setup (Dockerfile,
+Caddy router, start script) is ready for any VPS later. For now the laptop
+runs it, published at a fixed ngrok address, with an access code and
+usage caps added first so a public link can't spend the voice credit.
+Tested through that link: all 9 captions in 4 languages correct, first
+English words 0.80–1.04s.
 
 ## Running it
 
@@ -467,3 +486,18 @@ Open http://localhost:3000, create a meeting, share the link.
 **Testing two people on one laptop:** both browsers hear the same microphone,
 so mute one of them and use headphones — otherwise each voice is picked up
 twice and the translated voice gets re-captured.
+
+### Publishing it (laptop + ngrok)
+
+Needs `ngrok` and `caddy` (`winget install Ngrok.Ngrok CaddyServer.Caddy`),
+and `deploy/.env` (git-ignored) with `NGROK_AUTHTOKEN`, `NGROK_DOMAIN` (a
+free static domain from the ngrok dashboard) and `ACCESS_CODE`:
+
+```bash
+bash deploy/start-local.sh
+```
+
+It builds the app for one address, starts everything behind the same Caddy
+router the container uses, opens the ngrok link and prints it once healthy.
+`bash deploy/stop-local.sh` stops it. To run it on a server instead, the
+`Dockerfile` builds the whole app as one container.
