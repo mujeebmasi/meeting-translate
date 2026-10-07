@@ -15,6 +15,10 @@ export default function HomePage() {
   // stranger with the link can't run up the paid voice service). It's
   // remembered in this browser after the first time.
   const [needsCode, setNeedsCode] = useState(false);
+  // Until the server has said whether a code is needed, "Create meeting"
+  // waits -- otherwise the code field popped in a second later, and anyone
+  // quick enough got "Wrong access code" before they'd seen it.
+  const [configReady, setConfigReady] = useState(false);
   const [accessCode, setAccessCode] = useState(() =>
     typeof window === 'undefined' ? '' : localStorage.getItem('meet-translate:access-code') || '',
   );
@@ -23,7 +27,8 @@ export default function HomePage() {
     api
       .getConfig()
       .then((config) => setNeedsCode(config.accessCodeRequired))
-      .catch(() => {}); // an older server without /config: no code needed
+      .catch(() => {}) // an older server without /config: no code needed
+      .finally(() => setConfigReady(true));
   }, []);
 
   async function createMeeting(e: FormEvent) {
@@ -71,8 +76,8 @@ export default function HomePage() {
               />
             </div>
           )}
-          <Button type="submit" disabled={creating}>
-            {creating ? 'Creating...' : 'Create meeting'}
+          <Button type="submit" disabled={creating || !configReady}>
+            {!configReady ? 'Loading...' : creating ? 'Creating...' : 'Create meeting'}
           </Button>
         </form>
       </Card>
