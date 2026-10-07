@@ -4,6 +4,9 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
+  HttpException,
+  HttpStatus,
   Logger,
   NotFoundException,
   Param,
@@ -23,6 +26,7 @@ import { TranslateService } from '../translate/translate.service';
 import { MockService } from '../mock.service';
 import { CreateMeetingDto } from './meetings.dto';
 import { MOCK } from '../mock-flag';
+import { UsageService } from '../usage.service';
 import { TARGET_LANG, needsTranslation } from '../languages';
 
 const CONTEXT_LINES = 3;
@@ -57,10 +61,17 @@ export class MeetingsController {
     private asr: AsrService,
     private translate: TranslateService,
     private mock: MockService,
+    private usage: UsageService,
   ) {}
 
+  // Needs the access code (header x-access-code) when the server has one,
+  // so strangers with the site's address can't open meetings on it.
   @Post()
-  async create(@Body() dto: CreateMeetingDto) {
+  async create(
+    @Body() dto: CreateMeetingDto,
+    @Headers('x-access-code') accessCode?: string,
+  ) {
+    this.usage.checkAccessCode(accessCode);
     const meeting = await this.meetings.create(dto.title ?? '');
     return { code: meeting.code, title: meeting.title };
   }
@@ -101,6 +112,11 @@ export class MeetingsController {
       .list(code)
       .find((p) => p.participantId === participantId);
     if (!speaker) throw new NotFoundException('Not in this meeting');
+    if (this.usage.meetingFull(code))
+      throw new HttpException(
+        'This meeting has reached its limit of sentences. Start a new meeting to continue.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
 
     const body = req.body as unknown;
     if (!Buffer.isBuffer(body) || body.length === 0)
@@ -204,6 +220,7 @@ export class MeetingsController {
     caption.final = true;
     publish();
     this.phrases.forget(phraseId); // only after the last publish, which checks it
+    this.usage.countSentence(code);
     const translated = caption.translations[TARGET_LANG];
     this.remember(code, `${speaker.name}: ${translated || caption.original}`);
     this.logger.log(
@@ -213,7 +230,9 @@ export class MeetingsController {
     );
 
     // The spoken translation, pushed straight to the listeners who need it.
-    if (translated && !MOCK)
+    // takeVoice() is the daily cap on paid voice generation; past it the
+    // caption still arrives, just without the spoken version.
+    if (translated && !MOCK && this.usage.takeVoice())
       void this.streamVoice(
         code,
         caption.id,

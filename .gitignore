@@ -1,2 +1,7 @@
 # Each app also has its own .gitignore; this catches anything at the root.
 .DS_Store
+
+# Secrets, wherever they are (e.g. deploy/.env with the Hugging Face token).
+.env
+.env.*
+!.env.example

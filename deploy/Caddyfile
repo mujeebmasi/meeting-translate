@@ -1,0 +1,14 @@
+# The one public port. HTTPS is handled in front of this (by Hugging Face,
+# or by a second Caddy site block with a domain on a VPS).
+:7860 {
+	handle /api/* {
+		reverse_proxy 127.0.0.1:4000
+	}
+	# Socket.IO: signalling, captions, voice. Caddy passes WebSockets through.
+	handle /ws/* {
+		reverse_proxy 127.0.0.1:4000
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

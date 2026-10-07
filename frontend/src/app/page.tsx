@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, errorMessage } from '@/lib/api';
 import { Button, Card, ErrorText, Label } from '@/components/ui';
@@ -11,13 +11,28 @@ export default function HomePage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  // Public servers ask for an access code before creating a meeting (so a
+  // stranger with the link can't run up the paid voice service). It's
+  // remembered in this browser after the first time.
+  const [needsCode, setNeedsCode] = useState(false);
+  const [accessCode, setAccessCode] = useState(() =>
+    typeof window === 'undefined' ? '' : localStorage.getItem('meet-translate:access-code') || '',
+  );
+
+  useEffect(() => {
+    api
+      .getConfig()
+      .then((config) => setNeedsCode(config.accessCodeRequired))
+      .catch(() => {}); // an older server without /config: no code needed
+  }, []);
 
   async function createMeeting(e: FormEvent) {
     e.preventDefault();
     setError('');
     setCreating(true);
     try {
-      const meeting = await api.createMeeting(title);
+      const meeting = await api.createMeeting(title, accessCode.trim());
+      localStorage.setItem('meet-translate:access-code', accessCode.trim());
       router.push(`/m/${meeting.code}`);
     } catch (err) {
       setError(errorMessage(err));
@@ -45,6 +60,17 @@ export default function HomePage() {
             <Label>Meeting name</Label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Interview with Priya" maxLength={80} />
           </div>
+          {needsCode && (
+            <div>
+              <Label>Access code</Label>
+              <input
+                value={accessCode}
+                onChange={(e) => setAccessCode(e.target.value)}
+                placeholder="Ask the owner of this site"
+                required
+              />
+            </div>
+          )}
           <Button type="submit" disabled={creating}>
             {creating ? 'Creating...' : 'Create meeting'}
           </Button>

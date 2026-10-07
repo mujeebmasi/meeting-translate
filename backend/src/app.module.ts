@@ -8,6 +8,8 @@ import { MeetingsModule } from './meetings/meetings.module';
 import { MockModule } from './mock.module';
 import { LanguagesController } from './languages.controller';
 import { HealthController } from './health.controller';
+import { ConfigController } from './config.controller';
+import { UsageModule } from './usage.module';
 
 @Module({
   imports: [
@@ -18,8 +20,9 @@ import { HealthController } from './health.controller';
     AsrModule,
     TranslateModule,
     MockModule,
+    UsageModule,
     MeetingsModule,
   ],
-  controllers: [LanguagesController, HealthController],
+  controllers: [LanguagesController, HealthController, ConfigController],
 })
 export class AppModule {}

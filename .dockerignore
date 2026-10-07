@@ -1,0 +1,12 @@
+# Never send secrets or local build output into the image.
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+**/.next
+**/dist
+**/.venv
+**/__pycache__
+**/*.log
+asr/models
+.git
