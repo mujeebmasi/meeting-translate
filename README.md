@@ -4,6 +4,8 @@ Video meetings where people speaking **Hindi, Telugu, Tamil or Kannada** are
 heard in **English** by everyone else — as a live caption and a spoken
 English voice, with the original speaker muted for English listeners.
 
+**▶ [Watch the demo video](https://drive.google.com/drive/folders/1TVnb0qeELljhy-YjzJDwvPlVhix3OUga)** · **[Try it live](https://absinthe-croak-subsystem.ngrok-free.dev)**
+
 Under each English caption, what the speaker actually said is shown in
 English letters, the way people type Hindi or Telugu on their phone,
 instead of in the native script:
@@ -16,7 +18,11 @@ too.
 
 ## Live demo
 
-**https://absinthe-croak-subsystem.ngrok-free.dev**
+**Demo video:** [https://drive.google.com/drive/folders/1TVnb0qeELljhy-YjzJDwvPlVhix3OUga](https://drive.google.com/drive/folders/1TVnb0qeELljhy-YjzJDwvPlVhix3OUga)
+(real calls: a Hindi and a Telugu interview, captions arriving in about a
+second, and the same Hindi word read as "sleep" or "gold" from context)
+
+**Try it:** **https://absinthe-croak-subsystem.ngrok-free.dev**
 
 - Hosted from my laptop through ngrok, so it's online when I'm running it.
   If it doesn't load, it's offline; ask me and I'll start it.
