@@ -27,9 +27,11 @@ import { MockService } from '../mock.service';
 import { CreateMeetingDto } from './meetings.dto';
 import { MOCK } from '../mock-flag';
 import { UsageService } from '../usage.service';
+import { isJustNoise } from '../noise';
 import { TARGET_LANG, needsTranslation } from '../languages';
 
 const CONTEXT_LINES = 3;
+const MAX_VOICE_CHARS = 400;
 const MAX_MEETINGS_REMEMBERED = 500;
 
 @Controller('meetings')
@@ -161,6 +163,7 @@ export class MeetingsController {
       else if (speaker.lang === TARGET_LANG)
         caption.original = await this.fish.transcribe(body, speaker.lang);
       else caption.original = await this.asr.transcribe(body, speaker.lang);
+      if (isJustNoise(caption.original)) caption.original = ''; // a laugh, a cough
       if (!caption.original || this.phrases.isCancelled(phraseId)) {
         this.phrases.forget(phraseId);
         return caption.original ? { cancelled: true } : { empty: true }; // empty = just noise
@@ -232,7 +235,13 @@ export class MeetingsController {
     // The spoken translation, pushed straight to the listeners who need it.
     // takeVoice() is the daily cap on paid voice generation; past it the
     // caption still arrives, just without the spoken version.
-    if (translated && !MOCK && this.usage.takeVoice())
+    // The length check is a cost guard: Fish charges per character spoken.
+    if (
+      translated &&
+      translated.length <= MAX_VOICE_CHARS &&
+      !MOCK &&
+      this.usage.takeVoice()
+    )
       void this.streamVoice(
         code,
         caption.id,

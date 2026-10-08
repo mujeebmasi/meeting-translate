@@ -8,6 +8,8 @@ import {
   TranslateService,
   englishSoFar,
   parseTranslation,
+  replyTokenLimit,
+  tidyEnglish,
 } from './translate.service';
 
 async function withFakeClaude(
@@ -352,5 +354,35 @@ describe('TranslateService with Groq', () => {
           },
         ),
     );
+  });
+});
+
+describe('runaway replies (a real garbled Telugu sentence did this)', () => {
+  const runaway = 'Reddy, '.repeat(200);
+
+  it('collapses a word repeated 5+ times in a row to one', () => {
+    expect(tidyEnglish(`Hey ${runaway}`)).toBe('Hey Reddy,');
+  });
+
+  it('keeps ordinary repetition like "Okay, okay, okay"', () => {
+    expect(tidyEnglish('Okay, okay, okay.')).toBe('Okay, okay, okay.');
+  });
+
+  it('never shows raw JSON when the reply was cut off mid-way', () => {
+    const cutOff = `{"english": "${runaway}`;
+    const result = parseTranslation(cutOff);
+    expect(result.english).not.toContain('{');
+    expect(result.english).toBe('Reddy,');
+  });
+
+  it('cuts anything still too long at a sentence end', () => {
+    const long = 'This is a sentence. '.repeat(40);
+    expect(tidyEnglish(long).length).toBeLessThanOrEqual(400);
+    expect(tidyEnglish(long).endsWith('.')).toBe(true);
+  });
+
+  it('lets short sentences have short replies only', () => {
+    expect(replyTokenLimit('ఘ')).toBe(82);
+    expect(replyTokenLimit('x'.repeat(500))).toBe(300);
   });
 });
