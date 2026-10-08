@@ -94,6 +94,13 @@ too.
     window** ("No Python at …" from `uv run`'s launcher) → the start script
     runs the speech service with its environment's own Python, as the
     container does.
+16. **Garbled speech sent the translator into "Reddy, Reddy, Reddy…"**
+    hundreds of times: the caption showed raw JSON, Fish spoke ~16s of it
+    (paid), and it used up Groq's per-minute allowance → reply length now
+    follows the sentence's length, a word repeated 5+ times is cut to one,
+    a cut-off reply shows only its English, and the voice is skipped past
+    400 characters. One-syllable noises (a laugh became "घ" → "Gha") are
+    dropped too.
 
 More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
 
@@ -120,9 +127,6 @@ More detail on each in [Decisions](#decisions-and-what-each-was-based-on).
   and Fish Audio.
 - **Tamil and Kannada** were tested only with generated audio, not a real
   speaker.
-- **Very short sounds can become captions**: a laugh caught as one
-  syllable became "घ" → "Gha". Filtering out one-syllable phrases is a
-  small fix not done yet.
 - **English spoken while set to Hindi** is written phonetically in Hindi
   script ("what's up guys" → "वट्सअप गायस") and treated as Hindi.
 
@@ -351,6 +355,55 @@ letters, translation).
 | The English voice is the slowest part | Fish takes ~0.35s before the first piece of audio | A faster voice service (Groq's Orpheus: ~0.2s, but only 100 sentences a day free), or a local voice model on a GPU |
 | No login or usage limits | Anyone with the link can spend credit | Meeting passwords or login, plus per-meeting limits |
 | Free TURN relay | 1,000 GB a month of relayed video/voice; a static login | A paid or self-hosted relay (coturn) with short-lived logins issued per meeting |
+
+## How it's deployed
+
+The live demo runs on my laptop and is published to the internet through
+ngrok, at ₹0 a month.
+
+```mermaid
+flowchart LR
+    V["Visitor's browser"] -->|"https"| N["ngrok<br/>fixed free address"]
+    N --> C["Caddy router :7860<br/>(on the laptop)"]
+    C -->|"/api, /ws"| B["Backend (NestJS) :4000"]
+    C -->|"everything else"| F["Frontend (Next.js) :3000"]
+    B --> A["Speech-to-text :5001"]
+    B --> P[("PostgreSQL")]
+    V <-.->|"video + voice, via TURN<br/>if the network blocks direct"| V2["Other person's browser"]
+```
+
+| Piece | What it does | Cost |
+|---|---|---|
+| **ngrok** (free static domain) | Gives the laptop a permanent `https://` address (browsers only allow the mic on https) | ₹0 |
+| **Caddy** | One router in front of everything: `/api` and `/ws` go to the backend, the rest to the frontend, so the page uses relative URLs and there's no cross-site setup | ₹0 |
+| **Frontend, backend, speech-to-text, Postgres** | Run directly on the laptop; the speech model uses its CPU (~0.2s per sentence plugged in) | ₹0 |
+| **ExpressTURN** (free tier) | Relays live video and voice when two networks block a direct connection | ₹0 (1,000 GB a month) |
+| **Groq / DeepSeek / Fish Audio** | Translation and the English voice | Groq free; Fish per sentence (~₹0.08) |
+
+**Protection for a public link:** creating a meeting needs an **access
+code** (shared privately, never in this README); a meeting stops after 300
+sentences and the server after 500 English voices a day, so a leaked link
+can't run up the Fish bill.
+
+**Starting and stopping:** `bash deploy/start-local.sh` builds and starts
+everything, waits for the health check (`/api/health`) and prints the link;
+`--no-build` restarts in about a minute. `bash deploy/stop-local.sh` stops it.
+
+**How we got here:**
+- **Hugging Face Spaces** was the first plan: one Docker container with the
+  whole app and the speech model baked in (the `Dockerfile` and
+  `deploy/start.sh` are still here and work on any Docker host). Docker
+  Spaces turned out to need a paid plan, so it wasn't used.
+- A **paid VPS** in India (~₹800–1,200 a month) was the other option:
+  always on, same container. Not needed yet for demos.
+- **Laptop + ngrok** won: free, no card, and the fastest of the three
+  because the laptop's CPU is stronger than a free or cheap server's.
+
+**Trade-offs:** it's online only while the laptop is on and running;
+speed drops ~1s on battery; ngrok's free plan shows first-time visitors a
+warning page (including the laptop's internet address); and one laptop
+suits a few people at a time, not many meetings at once. Moving to a VPS
+later means running the same container there.
 
 ## Decisions, and what each was based on
 
